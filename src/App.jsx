@@ -162,7 +162,7 @@ function App() {
 
   async function loadDemo(name) {
     try {
-      const response = await fetch(`/test-images/${name}`);
+      const response = await fetch(`${import.meta.env.BASE_URL}test-images/${name}`);
       if (!response.ok) {
         throw new Error(`Не удалось загрузить тестовый файл ${name}.`);
       }
