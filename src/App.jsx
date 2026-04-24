@@ -12,18 +12,54 @@ const initialStatus = {
 
 function App() {
   const canvasRef = useRef(null);
+  const canvasWrapRef = useRef(null);
   const fileInputRef = useRef(null);
   const [status, setStatus] = useState(initialStatus);
   const [message, setMessage] = useState('Загрузите PNG, JPG/JPEG или GB7.');
   const [fileName, setFileName] = useState('');
   const [canvasReady, setCanvasReady] = useState(false);
+  const [canvasVersion, setCanvasVersion] = useState(0);
+  const [canvasFitSize, setCanvasFitSize] = useState(null);
 
   const canSave = canvasReady;
   const allowedLabel = useMemo(() => ACCEPTED_EXTENSIONS.join(', '), []);
+  const canvasStyle = canvasFitSize
+    ? { width: `${canvasFitSize.width}px`, height: `${canvasFitSize.height}px` }
+    : undefined;
 
   useEffect(() => {
     drawPlaceholder();
   }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const wrap = canvasWrapRef.current;
+    if (!canvas || !wrap) return;
+
+    function fitCanvasToWrap() {
+      const styles = getComputedStyle(wrap);
+      const horizontalPadding = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
+      const verticalPadding = parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom);
+      const availableWidth = Math.max(1, wrap.clientWidth - horizontalPadding);
+      const availableHeight = Math.max(1, wrap.clientHeight - verticalPadding);
+      const scale = Math.min(1, availableWidth / canvas.width, availableHeight / canvas.height);
+
+      setCanvasFitSize({
+        width: Math.max(1, Math.floor(canvas.width * scale)),
+        height: Math.max(1, Math.floor(canvas.height * scale)),
+      });
+    }
+
+    fitCanvasToWrap();
+    const resizeObserver = new ResizeObserver(fitCanvasToWrap);
+    resizeObserver.observe(wrap);
+    window.addEventListener('resize', fitCanvasToWrap);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', fitCanvasToWrap);
+    };
+  }, [canvasVersion]);
 
   function drawPlaceholder() {
     const canvas = canvasRef.current;
@@ -59,6 +95,7 @@ function App() {
     ctx.fillStyle = '#9cb0cf';
     ctx.fillText('После загрузки изображение будет показано здесь', canvas.width / 2, canvas.height / 2 + 18);
     setCanvasReady(false);
+    setCanvasVersion((version) => version + 1);
   }
 
   async function handleFileChange(event) {
@@ -113,6 +150,7 @@ function App() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(bitmap, 0, 0);
     setCanvasReady(true);
+    setCanvasVersion((version) => version + 1);
   }
 
   function renderToCanvas(imageData, width, height) {
@@ -123,6 +161,7 @@ function App() {
     ctx.clearRect(0, 0, width, height);
     ctx.putImageData(imageData, 0, 0);
     setCanvasReady(true);
+    setCanvasVersion((version) => version + 1);
   }
 
   async function saveAs(type) {
@@ -177,76 +216,111 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Лабораторная работа</p>
-          <h1>Цифровое представление изображения</h1>
-          <p className="subtitle">React-приложение для загрузки, просмотра и сохранения PNG, JPG и GB7.</p>
+    <div className="photoshop-shell">
+      <header className="menu-bar">
+        <nav className="app-menu" aria-label="Главное меню">
+          <button type="button" onClick={() => fileInputRef.current?.click()}>Файл</button>
+        </nav>
+        <div className="window-tools" aria-hidden="true">
+          <span className="search-icon"></span>
+          <span className="screen-icon"></span>
         </div>
       </header>
 
-      <main className="workspace">
-        <aside className="sidebar card">
-          <section>
-            <h2>Файл</h2>
-            <button className="primary-btn" onClick={() => fileInputRef.current?.click()}>
-              Загрузить изображение
-            </button>
-            <input
-              ref={fileInputRef}
-              className="hidden-input"
-              type="file"
-              accept=".png,.jpg,.jpeg,.gb7"
-              onChange={handleFileChange}
-            />
-            <p className="hint">Поддерживаемые форматы: {allowedLabel}</p>
-          </section>
+      <div className="options-bar">
+        <button className="tool-action" type="button" onClick={() => fileInputRef.current?.click()}>
+          <span className="tool-action-icon">+</span>
+          <span>Открыть</span>
+        </button>
+        <span className="format-note">PNG, JPG/JPEG, GB7</span>
+        <button type="button" onClick={() => saveAs('png')} disabled={!canSave}>PNG</button>
+        <button type="button" onClick={() => saveAs('jpg')} disabled={!canSave}>JPG</button>
+        <button type="button" onClick={() => saveAs('gb7')} disabled={!canSave}>GB7</button>
+        <input
+          ref={fileInputRef}
+          className="hidden-input"
+          type="file"
+          accept=".png,.jpg,.jpeg,.gb7"
+          onChange={handleFileChange}
+        />
+      </div>
 
-          <section>
-            <h2>Скачать</h2>
-            <div className="button-grid">
-              <button onClick={() => saveAs('png')} disabled={!canSave}>PNG</button>
-              <button onClick={() => saveAs('jpg')} disabled={!canSave}>JPG</button>
-              <button onClick={() => saveAs('gb7')} disabled={!canSave}>GB7</button>
-            </div>
-          </section>
-
-          <section>
-            <h2>Тестовые GB7</h2>
-            <div className="demo-list">
-              <button onClick={() => loadDemo('gradient-half-mask.gb7')}>gradient-half-mask.gb7</button>
-              <button onClick={() => loadDemo('kapibara-mask.gb7')}>kapibara-mask.gb7</button>
-              <button onClick={() => loadDemo('vertical-kapibara.gb7')}>vertical-kapibara.gb7</button>
-            </div>
-          </section>
-
-          <section>
-            <h2>Подсказки</h2>
-            <ul className="tips">
-              <li>GB7 декодируется и кодируется без сторонних библиотек.</li>
-              <li>После загрузки картинка рисуется прямо в HTML5 canvas.</li>
-              <li>Большие изображения масштабируются стилями и не ломают верстку.</li>
-            </ul>
-          </section>
+      <main className="editor-workspace">
+        <aside className="tools-panel" aria-label="Панель инструментов">
+          {['↖', '▢', '✎', '◩', '⌕', 'T', '■'].map((tool, index) => (
+            <span
+              className={index === 0 ? 'tool-button active' : 'tool-button'}
+              key={`${tool}-${index}`}
+              aria-hidden="true"
+            >
+              {tool}
+            </span>
+          ))}
+          <div className="color-swatches" aria-label="Цвета">
+            <span className="swatch foreground"></span>
+            <span className="swatch background"></span>
+          </div>
         </aside>
 
-        <section className="viewer card">
-          <div className="viewer-toolbar">
-            <span className="file-chip">{fileName || 'Нет файла'}</span>
-            <span className="message">{message}</span>
+        <section className="document-stage">
+          <div className="document-tab">
+            <span>{fileName || 'Без имени'}</span>
           </div>
-          <div className="canvas-wrap">
-            <canvas ref={canvasRef} />
+          <div className="canvas-wrap" ref={canvasWrapRef}>
+            <canvas ref={canvasRef} style={canvasStyle} />
           </div>
         </section>
+
+        <aside className="right-panels">
+          <section className="panel info-panel">
+            <div className="panel-title">
+              <span>Информация</span>
+            </div>
+            <div className="info-list">
+              <span>Ширина: {status.width}</span>
+              <span>Высота: {status.height}</span>
+              <span>Глубина: {status.colorDepth}</span>
+              <span>Формат: {status.format}</span>
+            </div>
+          </section>
+
+          <section className="panel">
+            <div className="panel-title">
+              <span>Изображение</span>
+            </div>
+            <div className="layers-controls">
+              <div className="mini-row">
+                <span>Имя файла:</span>
+                <strong>{fileName || 'не загружен'}</strong>
+              </div>
+              <div className="mini-row">
+                <span>Canvas:</span>
+                <strong>{canvasReady ? 'готов' : 'пустой'}</strong>
+              </div>
+            </div>
+            <div className="layer-item active">
+              <span className="eye">◉</span>
+              <span className="layer-thumb"></span>
+              <span>Background</span>
+            </div>
+          </section>
+
+          <section className="panel file-panel">
+            <h2>Файлы GB7</h2>
+            <button type="button" onClick={() => loadDemo('gradient-half-mask.gb7')}>gradient-half-mask.gb7</button>
+            <button type="button" onClick={() => loadDemo('kapibara-mask.gb7')}>kapibara-mask.gb7</button>
+            <button type="button" onClick={() => loadDemo('vertical-kapibara.gb7')}>vertical-kapibara.gb7</button>
+          </section>
+        </aside>
       </main>
 
       <footer className="statusbar">
-        <span><strong>Ширина:</strong> {status.width}</span>
-        <span><strong>Высота:</strong> {status.height}</span>
-        <span><strong>Глубина цвета:</strong> {status.colorDepth}</span>
-        <span><strong>Формат:</strong> {status.format}</span>
+        <span>{message}</span>
+        <span>Форматы: {allowedLabel}</span>
+        <span>Ширина: {status.width}</span>
+        <span>Высота: {status.height}</span>
+        <span>Глубина: {status.colorDepth}</span>
+        <span>{status.format}</span>
       </footer>
     </div>
   );
