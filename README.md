@@ -1,6 +1,7 @@
 # GB7 React Lab
 
 Лабораторная работа по теме **«Цифровое представление изображения»**.
+https://gb7-image-viewer.onrender.com/gb7-image-viewer/
 
 ## Что умеет приложение
 
