@@ -26,7 +26,7 @@ const LEVEL_CHANNELS = [
   { value: 'a', label: 'Alpha' },
 ];
 
-const DEFAULT_LEVEL = { black: 0, mid: 128, white: 255 };
+const DEFAULT_LEVEL = { black: 0, mid: 128, white: 255, gamma: 1 };
 
 function App() {
   const canvasRef = useRef(null);
@@ -63,7 +63,7 @@ function App() {
   }, [levelsOpen, levelsChannel]);
 
   useEffect(() => {
-    drawPlaceholder();
+    drawDemoImage();
   }, []);
 
   useEffect(() => {
@@ -155,6 +155,24 @@ function App() {
     setPickedColor(null);
     setCanvasReady(false);
     setCanvasVersion((version) => version + 1);
+  }
+
+  function drawDemoImage() {
+    const imageData = createDemoImageData(960, 540);
+    originalImageDataRef.current = cloneImageData(imageData);
+    levelsBaseImageDataRef.current = null;
+    setAvailableChannels(['r', 'g', 'b', 'a']);
+    setActiveChannels({ r: true, g: true, b: true, a: true });
+    setPickedColor(null);
+    setFileName('levels-demo');
+    setStatus({
+      width: imageData.width,
+      height: imageData.height,
+      colorDepth: '32-bit RGBA',
+      format: 'Демо-изображение',
+    });
+    renderImageData(imageData);
+    setMessage('Демо-изображение готово. Нажмите инструмент “Уровни”, чтобы увидеть коррекцию.');
   }
 
   async function handleFileChange(event) {
@@ -411,7 +429,6 @@ function App() {
         <button type="button" onClick={() => saveAs('png')} disabled={!canSave}>PNG</button>
         <button type="button" onClick={() => saveAs('jpg')} disabled={!canSave}>JPG</button>
         <button type="button" onClick={() => saveAs('gb7')} disabled={!canSave}>GB7</button>
-        <button type="button" onClick={openLevelsDialog} disabled={!canvasReady}>Уровни</button>
         <input
           ref={fileInputRef}
           className="hidden-input"
@@ -439,6 +456,16 @@ function App() {
             title="Пипетка"
           >
             ◉
+          </button>
+          <button
+            className={levelsOpen ? 'tool-button active' : 'tool-button'}
+            type="button"
+            onClick={openLevelsDialog}
+            disabled={!canvasReady}
+            aria-label="Уровни"
+            title="Уровни"
+          >
+            ▥
           </button>
         </aside>
 
@@ -655,7 +682,7 @@ function HistogramCanvas({ histogram, mode }) {
 }
 
 function LevelsControls({ level, onMarkerChange, onGammaChange }) {
-  const gamma = midpointToGamma(level);
+  const gamma = clamp(Number(level.gamma), 0.1, 9.9).toFixed(2);
 
   return (
     <div className="levels-controls">
@@ -796,6 +823,34 @@ function createChannelPreviewImageData(imageData, channel) {
   return new ImageData(output, imageData.width, imageData.height);
 }
 
+function createDemoImageData(width, height) {
+  const data = new Uint8ClampedArray(width * height * 4);
+  const centerX = width * 0.62;
+  const centerY = height * 0.46;
+  const radius = Math.min(width, height) * 0.24;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4;
+      const nx = x / (width - 1);
+      const ny = y / (height - 1);
+      const stripes = Math.sin((nx * 14 + ny * 9) * Math.PI) * 18;
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const distance = Math.hypot(dx, dy);
+      const circle = distance < radius ? 58 : 0;
+      const shadow = clamp(Math.round(54 * (1 - Math.min(1, distance / (radius * 1.8)))), 0, 54);
+
+      data[offset] = clamp(Math.round((nx * 210) + (ny * 34) + circle + stripes), 0, 255);
+      data[offset + 1] = clamp(Math.round((ny * 190) + ((1 - nx) * 54) + shadow), 0, 255);
+      data[offset + 2] = clamp(Math.round(((1 - nx) * 150) + ((1 - ny) * 80) + circle * 0.35), 0, 255);
+      data[offset + 3] = 255;
+    }
+  }
+
+  return new ImageData(data, width, height);
+}
+
 function createDefaultLevelSettings() {
   return Object.fromEntries(LEVEL_CHANNELS.map((channel) => [channel.value, { ...DEFAULT_LEVEL }]));
 }
@@ -833,7 +888,7 @@ function updateLevelGammaSetting(settings, channel, rawValue) {
   const current = settings[channel];
   const range = current.white - current.black;
   const mid = Math.round(current.black + (range * (0.5 ** (1 / gamma))));
-  const nextLevel = normalizeLevel({ ...current, mid }, 'mid');
+  const nextLevel = normalizeLevel({ ...current, mid, gamma }, 'gamma');
   return { ...settings, [channel]: nextLevel };
 }
 
@@ -842,6 +897,7 @@ function normalizeLevel(level, changedKey) {
     black: clamp(Math.round(level.black), 0, 254),
     mid: clamp(Math.round(level.mid), 0, 255),
     white: clamp(Math.round(level.white), 1, 255),
+    gamma: clamp(Number(level.gamma), 0.1, 9.9),
   };
 
   if (next.black >= next.white) {
@@ -853,12 +909,19 @@ function normalizeLevel(level, changedKey) {
   }
 
   next.mid = clamp(next.mid, next.black + 1, next.white - 1);
+  if (changedKey !== 'gamma') {
+    next.gamma = midpointToGammaValue(next);
+  }
   return next;
 }
 
 function midpointToGamma(level) {
+  return midpointToGammaValue(level).toFixed(2);
+}
+
+function midpointToGammaValue(level) {
   const normalized = clamp((level.mid - level.black) / (level.white - level.black), 0.001, 0.999);
-  return clamp(Math.log(0.5) / Math.log(normalized), 0.1, 9.9).toFixed(2);
+  return clamp(Math.log(0.5) / Math.log(normalized), 0.1, 9.9);
 }
 
 function applyLevelsToImageData(imageData, settings) {
@@ -883,7 +946,7 @@ function applyLevelsToImageData(imageData, settings) {
 
 function createLevelsLut(level) {
   const lut = new Uint8ClampedArray(256);
-  const gamma = Number(midpointToGamma(level));
+  const gamma = level.gamma;
   const range = level.white - level.black;
 
   for (let value = 0; value < 256; value += 1) {
