@@ -390,22 +390,6 @@ function App() {
     );
   }
 
-  async function loadDemo(name) {
-    try {
-      const response = await fetch(`${import.meta.env.BASE_URL}test-images/${name}`);
-      if (!response.ok) {
-        throw new Error(`Не удалось загрузить тестовый файл ${name}.`);
-      }
-      const blob = await response.blob();
-      const file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
-      await openFile(file);
-      setFileName(name);
-      setMessage(`Открыт тестовый файл ${name}.`);
-    } catch (error) {
-      setMessage(error.message || 'Ошибка загрузки тестового файла.');
-    }
-  }
-
   return (
     <div className="photoshop-shell">
       <header className="menu-bar">
@@ -456,13 +440,6 @@ function App() {
           >
             ◉
           </button>
-          {['▢', '✎', '◩', 'T', '■'].map((tool, index) => (
-            <span className="tool-button muted" key={`${tool}-${index}`} aria-hidden="true">{tool}</span>
-          ))}
-          <div className="color-swatches" aria-label="Цвета">
-            <span className="swatch foreground"></span>
-            <span className="swatch background"></span>
-          </div>
         </aside>
 
         <section className="document-stage">
@@ -557,13 +534,6 @@ function App() {
                 <span className="empty-panel-note">Загрузите изображение.</span>
               )}
             </div>
-          </section>
-
-          <section className="panel file-panel">
-            <h2>Файлы GB7</h2>
-            <button type="button" onClick={() => loadDemo('gradient-half-mask.gb7')}>gradient-half-mask.gb7</button>
-            <button type="button" onClick={() => loadDemo('kapibara-mask.gb7')}>kapibara-mask.gb7</button>
-            <button type="button" onClick={() => loadDemo('vertical-kapibara.gb7')}>vertical-kapibara.gb7</button>
           </section>
         </aside>
       </main>
