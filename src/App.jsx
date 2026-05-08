@@ -18,11 +18,24 @@ const CHANNEL_DEFS = {
   a: { label: 'Alpha', sampleIndex: 3 },
 };
 
+const LEVEL_CHANNELS = [
+  { value: 'master', label: 'Master' },
+  { value: 'r', label: 'Red' },
+  { value: 'g', label: 'Green' },
+  { value: 'b', label: 'Blue' },
+  { value: 'a', label: 'Alpha' },
+];
+
+const DEFAULT_LEVEL = { black: 0, mid: 128, white: 255 };
+
 function App() {
   const canvasRef = useRef(null);
   const canvasWrapRef = useRef(null);
   const fileInputRef = useRef(null);
+  const levelsDialogRef = useRef(null);
   const originalImageDataRef = useRef(null);
+  const levelsBaseImageDataRef = useRef(null);
+  const levelsPreviewFrameRef = useRef(null);
   const [status, setStatus] = useState(initialStatus);
   const [message, setMessage] = useState('Загрузите PNG, JPG/JPEG или GB7.');
   const [fileName, setFileName] = useState('');
@@ -33,16 +46,44 @@ function App() {
   const [activeChannels, setActiveChannels] = useState({});
   const [activeTool, setActiveTool] = useState('move');
   const [pickedColor, setPickedColor] = useState(null);
+  const [levelsOpen, setLevelsOpen] = useState(false);
+  const [levelsChannel, setLevelsChannel] = useState('master');
+  const [histogramMode, setHistogramMode] = useState('linear');
+  const [levelsPreview, setLevelsPreview] = useState(true);
+  const [levelsSettings, setLevelsSettings] = useState(createDefaultLevelSettings);
 
   const canSave = canvasReady;
   const allowedLabel = useMemo(() => ACCEPTED_EXTENSIONS.join(', '), []);
   const canvasStyle = canvasFitSize
     ? { width: `${canvasFitSize.width}px`, height: `${canvasFitSize.height}px` }
     : undefined;
+  const histogram = useMemo(() => {
+    if (!levelsOpen || !levelsBaseImageDataRef.current) return null;
+    return computeHistogram(levelsBaseImageDataRef.current, levelsChannel);
+  }, [levelsOpen, levelsChannel]);
 
   useEffect(() => {
     drawPlaceholder();
   }, []);
+
+  useEffect(() => {
+    const dialog = levelsDialogRef.current;
+    if (!dialog) return;
+
+    if (levelsOpen && !dialog.open) {
+      dialog.showModal();
+    } else if (!levelsOpen && dialog.open) {
+      dialog.close();
+    }
+  }, [levelsOpen]);
+
+  useEffect(() => (
+    () => {
+      if (levelsPreviewFrameRef.current) {
+        cancelAnimationFrame(levelsPreviewFrameRef.current);
+      }
+    }
+  ), []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -108,6 +149,7 @@ function App() {
     ctx.fillStyle = '#9cb0cf';
     ctx.fillText('После загрузки изображение будет показано здесь', canvas.width / 2, canvas.height / 2 + 18);
     originalImageDataRef.current = null;
+    levelsBaseImageDataRef.current = null;
     setAvailableChannels([]);
     setActiveChannels({});
     setPickedColor(null);
@@ -173,6 +215,7 @@ function App() {
 
   function setOriginalImage(imageData, channels) {
     originalImageDataRef.current = cloneImageData(imageData);
+    levelsBaseImageDataRef.current = null;
     setAvailableChannels(channels);
     setActiveChannels(Object.fromEntries(channels.map((channel) => [channel, true])));
     setPickedColor(null);
@@ -199,9 +242,97 @@ function App() {
   function toggleChannel(channel) {
     setActiveChannels((current) => {
       const next = { ...current, [channel]: !current[channel] };
-      renderDisplayFromChannels(next);
+      if (levelsOpen && levelsBaseImageDataRef.current) {
+        renderImageData(createLevelPreviewImageData(levelsBaseImageDataRef.current, levelsSettings, levelsPreview, next, availableChannels));
+      } else {
+        renderDisplayFromChannels(next);
+      }
       return next;
     });
+  }
+
+  function openLevelsDialog() {
+    if (!canvasReady || !originalImageDataRef.current) {
+      setMessage('Сначала загрузите изображение.');
+      return;
+    }
+
+    const base = cloneImageData(originalImageDataRef.current);
+    const defaults = createDefaultLevelSettings();
+    levelsBaseImageDataRef.current = base;
+    setLevelsSettings(defaults);
+    setLevelsChannel('master');
+    setHistogramMode('linear');
+    setLevelsPreview(true);
+    setLevelsOpen(true);
+    renderImageData(createLevelPreviewImageData(base, defaults, true, activeChannels, availableChannels));
+    setMessage('Открыт инструмент Levels.');
+  }
+
+  function scheduleLevelsPreview(nextSettings = levelsSettings, nextPreview = levelsPreview) {
+    const base = levelsBaseImageDataRef.current;
+    if (!base) return;
+
+    if (levelsPreviewFrameRef.current) {
+      cancelAnimationFrame(levelsPreviewFrameRef.current);
+    }
+
+    levelsPreviewFrameRef.current = requestAnimationFrame(() => {
+      levelsPreviewFrameRef.current = null;
+      renderImageData(createLevelPreviewImageData(base, nextSettings, nextPreview, activeChannels, availableChannels));
+    });
+  }
+
+  function updateLevelMarker(key, value) {
+    setLevelsSettings((current) => {
+      const next = updateLevelSettings(current, levelsChannel, key, value);
+      scheduleLevelsPreview(next, levelsPreview);
+      return next;
+    });
+  }
+
+  function updateLevelGamma(value) {
+    setLevelsSettings((current) => {
+      const next = updateLevelGammaSetting(current, levelsChannel, value);
+      scheduleLevelsPreview(next, levelsPreview);
+      return next;
+    });
+  }
+
+  function handleLevelsPreviewChange(event) {
+    const checked = event.target.checked;
+    setLevelsPreview(checked);
+    scheduleLevelsPreview(levelsSettings, checked);
+  }
+
+  function resetLevels() {
+    const defaults = createDefaultLevelSettings();
+    setLevelsSettings(defaults);
+    scheduleLevelsPreview(defaults, levelsPreview);
+    setMessage('Levels: значения сброшены.');
+  }
+
+  function cancelLevels() {
+    const base = levelsBaseImageDataRef.current;
+    if (base) {
+      originalImageDataRef.current = cloneImageData(base);
+      renderImageData(createChannelFilteredImageData(base, availableChannels, activeChannels));
+    }
+    levelsBaseImageDataRef.current = null;
+    setLevelsOpen(false);
+    setMessage('Levels: изменения отменены.');
+  }
+
+  function applyLevelsDialog() {
+    const base = levelsBaseImageDataRef.current;
+    if (!base) return;
+
+    const corrected = applyLevelsToImageData(base, levelsSettings);
+    originalImageDataRef.current = cloneImageData(corrected);
+    levelsBaseImageDataRef.current = null;
+    renderImageData(createChannelFilteredImageData(corrected, availableChannels, activeChannels));
+    setLevelsOpen(false);
+    setMessage('Levels: коррекция применена.');
   }
 
   function handleCanvasClick(event) {
@@ -296,6 +427,7 @@ function App() {
         <button type="button" onClick={() => saveAs('png')} disabled={!canSave}>PNG</button>
         <button type="button" onClick={() => saveAs('jpg')} disabled={!canSave}>JPG</button>
         <button type="button" onClick={() => saveAs('gb7')} disabled={!canSave}>GB7</button>
+        <button type="button" onClick={openLevelsDialog} disabled={!canvasReady}>Уровни</button>
         <input
           ref={fileInputRef}
           className="hidden-input"
@@ -444,6 +576,182 @@ function App() {
         <span>Глубина: {status.colorDepth}</span>
         <span>{status.format}</span>
       </footer>
+
+      <dialog
+        className="levels-dialog"
+        ref={levelsDialogRef}
+        onCancel={(event) => {
+          event.preventDefault();
+          cancelLevels();
+        }}
+      >
+        <div className="levels-title">Уровни</div>
+        <div className="levels-body">
+          <label className="levels-field">
+            <span>Канал</span>
+            <select value={levelsChannel} onChange={(event) => setLevelsChannel(event.target.value)}>
+              {LEVEL_CHANNELS.map((channel) => (
+                <option value={channel.value} key={channel.value}>{channel.label}</option>
+              ))}
+            </select>
+          </label>
+
+          <div className="levels-mode" role="group" aria-label="Режим гистограммы">
+            <button
+              type="button"
+              className={histogramMode === 'linear' ? 'active' : undefined}
+              onClick={() => setHistogramMode('linear')}
+            >
+              Линейная
+            </button>
+            <button
+              type="button"
+              className={histogramMode === 'log' ? 'active' : undefined}
+              onClick={() => setHistogramMode('log')}
+            >
+              Логарифм
+            </button>
+          </div>
+
+          <HistogramCanvas histogram={histogram} mode={histogramMode} />
+
+          <LevelsControls
+            level={levelsSettings[levelsChannel]}
+            onMarkerChange={updateLevelMarker}
+            onGammaChange={updateLevelGamma}
+          />
+
+          <label className="preview-check">
+            <input type="checkbox" checked={levelsPreview} onChange={handleLevelsPreviewChange} />
+            <span>Предпросмотр</span>
+          </label>
+        </div>
+        <form className="levels-actions" method="dialog">
+          <button type="button" onClick={resetLevels}>Сброс</button>
+          <button type="button" onClick={cancelLevels}>Отмена</button>
+          <button type="button" onClick={applyLevelsDialog}>Применить</button>
+        </form>
+      </dialog>
+    </div>
+  );
+}
+
+function HistogramCanvas({ histogram, mode }) {
+  const histogramRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = histogramRef.current;
+    if (!canvas || !histogram) return;
+
+    const width = 512;
+    const height = 170;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = '#191919';
+    ctx.fillRect(0, 0, width, height);
+
+    const values = histogram.map((count) => (mode === 'log' ? Math.log1p(count) : count));
+    const max = Math.max(1, ...values);
+    const barWidth = width / histogram.length;
+
+    ctx.strokeStyle = '#303030';
+    ctx.lineWidth = 1;
+    for (let x = 0; x <= width; x += 64) {
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, 0);
+      ctx.lineTo(x + 0.5, height);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = '#d8d8d8';
+    values.forEach((value, index) => {
+      const barHeight = Math.max(1, (value / max) * (height - 14));
+      ctx.fillRect(index * barWidth, height - barHeight, Math.ceil(barWidth), barHeight);
+    });
+
+    ctx.fillStyle = '#9f9f9f';
+    ctx.font = '11px Arial, Helvetica, sans-serif';
+    ctx.fillText('0', 4, height - 5);
+    ctx.fillText('127', width / 2 - 9, height - 5);
+    ctx.fillText('255', width - 24, height - 5);
+  }, [histogram, mode]);
+
+  return <canvas className="histogram-canvas" ref={histogramRef} aria-label="Гистограмма уровней" />;
+}
+
+function LevelsControls({ level, onMarkerChange, onGammaChange }) {
+  const gamma = midpointToGamma(level);
+
+  return (
+    <div className="levels-controls">
+      <div className="levels-track" aria-label="Input Levels">
+        <input
+          className="level-range black"
+          type="range"
+          min="0"
+          max="254"
+          value={level.black}
+          onChange={(event) => onMarkerChange('black', event.target.value)}
+          aria-label="Точка черного"
+        />
+        <input
+          className="level-range mid"
+          type="range"
+          min="0"
+          max="255"
+          value={level.mid}
+          onChange={(event) => onMarkerChange('mid', event.target.value)}
+          aria-label="Полутона"
+        />
+        <input
+          className="level-range white"
+          type="range"
+          min="1"
+          max="255"
+          value={level.white}
+          onChange={(event) => onMarkerChange('white', event.target.value)}
+          aria-label="Точка белого"
+        />
+      </div>
+
+      <div className="level-number-grid">
+        <label>
+          <span>Black</span>
+          <input
+            type="number"
+            min="0"
+            max="254"
+            value={level.black}
+            onChange={(event) => onMarkerChange('black', event.target.value)}
+          />
+        </label>
+        <label>
+          <span>Gamma</span>
+          <input
+            type="number"
+            min="0.1"
+            max="9.9"
+            step="0.01"
+            value={gamma}
+            onChange={(event) => onGammaChange(event.target.value)}
+          />
+        </label>
+        <label>
+          <span>White</span>
+          <input
+            type="number"
+            min="1"
+            max="255"
+            value={level.white}
+            onChange={(event) => onMarkerChange('white', event.target.value)}
+          />
+        </label>
+      </div>
     </div>
   );
 }
@@ -516,6 +824,109 @@ function createChannelPreviewImageData(imageData, channel) {
   }
 
   return new ImageData(output, imageData.width, imageData.height);
+}
+
+function createDefaultLevelSettings() {
+  return Object.fromEntries(LEVEL_CHANNELS.map((channel) => [channel.value, { ...DEFAULT_LEVEL }]));
+}
+
+function createLevelPreviewImageData(imageData, settings, previewEnabled, activeChannels, displayChannels) {
+  const source = previewEnabled ? applyLevelsToImageData(imageData, settings) : cloneImageData(imageData);
+  return createChannelFilteredImageData(source, displayChannels, activeChannels);
+}
+
+function computeHistogram(imageData, channel) {
+  const histogram = new Array(256).fill(0);
+  const { data } = imageData;
+
+  for (let i = 0; i < data.length; i += 4) {
+    let value;
+    if (channel === 'master') {
+      value = Math.round((0.299 * data[i]) + (0.587 * data[i + 1]) + (0.114 * data[i + 2]));
+    } else {
+      value = data[i + CHANNEL_DEFS[channel].sampleIndex];
+    }
+    histogram[value] += 1;
+  }
+
+  return histogram;
+}
+
+function updateLevelSettings(settings, channel, key, rawValue) {
+  const current = settings[channel];
+  const nextLevel = normalizeLevel({ ...current, [key]: Number(rawValue) }, key);
+  return { ...settings, [channel]: nextLevel };
+}
+
+function updateLevelGammaSetting(settings, channel, rawValue) {
+  const gamma = clamp(Number(rawValue), 0.1, 9.9);
+  const current = settings[channel];
+  const range = current.white - current.black;
+  const mid = Math.round(current.black + (range * (0.5 ** (1 / gamma))));
+  const nextLevel = normalizeLevel({ ...current, mid }, 'mid');
+  return { ...settings, [channel]: nextLevel };
+}
+
+function normalizeLevel(level, changedKey) {
+  const next = {
+    black: clamp(Math.round(level.black), 0, 254),
+    mid: clamp(Math.round(level.mid), 0, 255),
+    white: clamp(Math.round(level.white), 1, 255),
+  };
+
+  if (next.black >= next.white) {
+    if (changedKey === 'white') {
+      next.black = next.white - 1;
+    } else {
+      next.white = next.black + 1;
+    }
+  }
+
+  next.mid = clamp(next.mid, next.black + 1, next.white - 1);
+  return next;
+}
+
+function midpointToGamma(level) {
+  const normalized = clamp((level.mid - level.black) / (level.white - level.black), 0.001, 0.999);
+  return clamp(Math.log(0.5) / Math.log(normalized), 0.1, 9.9).toFixed(2);
+}
+
+function applyLevelsToImageData(imageData, settings) {
+  const output = new Uint8ClampedArray(imageData.data);
+  const masterLut = createLevelsLut(settings.master);
+  const channelLuts = {
+    r: createLevelsLut(settings.r),
+    g: createLevelsLut(settings.g),
+    b: createLevelsLut(settings.b),
+    a: createLevelsLut(settings.a),
+  };
+
+  for (let i = 0; i < output.length; i += 4) {
+    output[i] = channelLuts.r[masterLut[output[i]]];
+    output[i + 1] = channelLuts.g[masterLut[output[i + 1]]];
+    output[i + 2] = channelLuts.b[masterLut[output[i + 2]]];
+    output[i + 3] = channelLuts.a[output[i + 3]];
+  }
+
+  return new ImageData(output, imageData.width, imageData.height);
+}
+
+function createLevelsLut(level) {
+  const lut = new Uint8ClampedArray(256);
+  const gamma = Number(midpointToGamma(level));
+  const range = level.white - level.black;
+
+  for (let value = 0; value < 256; value += 1) {
+    const normalized = clamp((value - level.black) / range, 0, 1);
+    lut[value] = Math.round(255 * (normalized ** gamma));
+  }
+
+  return lut;
+}
+
+function clamp(value, min, max) {
+  if (Number.isNaN(value)) return min;
+  return Math.min(max, Math.max(min, value));
 }
 
 function rgbToLab(r, g, b) {
