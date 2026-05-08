@@ -55,7 +55,6 @@ function App() {
   const [histogramMode, setHistogramMode] = useState('linear');
   const [levelsPreview, setLevelsPreview] = useState(true);
   const [levelsSettings, setLevelsSettings] = useState(createDefaultLevelSettings);
-  const [levelsModalPreviewImageData, setLevelsModalPreviewImageData] = useState(null);
 
   const canSave = canvasReady;
   const allowedLabel = useMemo(() => ACCEPTED_EXTENSIONS.join(', '), []);
@@ -159,7 +158,6 @@ function App() {
     setAvailableChannels([]);
     setActiveChannels({});
     setPickedColor(null);
-    setLevelsModalPreviewImageData(null);
     setFileName('');
     setStatus(initialStatus);
     setCanvasReady(false);
@@ -297,12 +295,6 @@ function App() {
     setMessage('Открыт инструмент Levels.');
   }
 
-  function createLevelsModalPreview(settings, nextActiveChannels, nextDisplayChannels) {
-    const base = levelsBaseImageDataRef.current;
-    if (!base) return null;
-    return createLevelPreviewImageData(base, settings, true, nextActiveChannels, nextDisplayChannels);
-  }
-
   function renderLevelsViews(
     nextSettings = levelsSettings,
     nextPreview = levelsPreview,
@@ -312,13 +304,9 @@ function App() {
     const base = levelsBaseImageDataRef.current;
     if (!base) return;
 
-    const modalPreview = createLevelsModalPreview(nextSettings, nextActiveChannels, nextDisplayChannels);
-    if (!modalPreview) return;
-
-    setLevelsModalPreviewImageData(modalPreview);
     if (levelsHadImageBeforeOpenRef.current) {
       renderImageData(nextPreview
-        ? modalPreview
+        ? createLevelPreviewImageData(base, nextSettings, true, nextActiveChannels, nextDisplayChannels)
         : createLevelPreviewImageData(base, nextSettings, false, nextActiveChannels, nextDisplayChannels));
     }
   }
@@ -398,7 +386,6 @@ function App() {
     levelsBaseImageDataRef.current = null;
     levelsDisplayChannelsRef.current = [];
     levelsDisplayActiveChannelsRef.current = {};
-    setLevelsModalPreviewImageData(null);
     setLevelsOpen(false);
     setMessage('Levels: изменения отменены.');
   }
@@ -431,7 +418,6 @@ function App() {
     ));
     levelsDisplayChannelsRef.current = [];
     levelsDisplayActiveChannelsRef.current = {};
-    setLevelsModalPreviewImageData(null);
     setLevelsOpen(false);
     setMessage('Levels: коррекция применена.');
   }
@@ -692,8 +678,6 @@ function App() {
             </button>
           </div>
 
-          <LevelsPreviewCanvas imageData={levelsModalPreviewImageData} />
-
           <HistogramCanvas histogram={histogram} mode={histogramMode} />
 
           <LevelsControls
@@ -713,27 +697,6 @@ function App() {
           <button type="button" onClick={applyLevelsDialog}>Применить</button>
         </form>
       </dialog>
-    </div>
-  );
-}
-
-function LevelsPreviewCanvas({ imageData }) {
-  const previewRef = useRef(null);
-
-  useEffect(() => {
-    const canvas = previewRef.current;
-    if (!canvas || !imageData) return;
-
-    const ctx = canvas.getContext('2d');
-    canvas.width = imageData.width;
-    canvas.height = imageData.height;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.putImageData(imageData, 0, 0);
-  }, [imageData]);
-
-  return (
-    <div className="levels-preview-frame">
-      <canvas className="levels-preview-canvas" ref={previewRef} aria-label="Предпросмотр уровней" />
     </div>
   );
 }

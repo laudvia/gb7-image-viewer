@@ -543,33 +543,6 @@ canvas {
   box-shadow: inset 0 0 0 1px #969696;
 }
 
-.levels-preview-frame {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  max-width: 512px;
-  height: 170px;
-  overflow: hidden;
-  border: 1px solid #191919;
-  background:
-    linear-gradient(45deg, #2a2a2a 25%, transparent 25%),
-    linear-gradient(-45deg, #2a2a2a 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #2a2a2a 75%),
-    linear-gradient(-45deg, transparent 75%, #2a2a2a 75%),
-    #1b1b1b;
-  background-size: 16px 16px;
-  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
-  box-shadow: inset 0 0 0 1px #303030;
-}
-
-.levels-preview-canvas {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  background: transparent;
-  box-shadow: none;
-}
-
 .histogram-canvas {
   width: 100%;
   max-width: 512px;
