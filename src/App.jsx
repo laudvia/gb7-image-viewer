@@ -35,6 +35,9 @@ function App() {
   const levelsDialogRef = useRef(null);
   const originalImageDataRef = useRef(null);
   const levelsBaseImageDataRef = useRef(null);
+  const levelsHadImageBeforeOpenRef = useRef(false);
+  const levelsDisplayChannelsRef = useRef([]);
+  const levelsDisplayActiveChannelsRef = useRef({});
   const levelsPreviewFrameRef = useRef(null);
   const [status, setStatus] = useState(initialStatus);
   const [message, setMessage] = useState('Загрузите PNG, JPG/JPEG или GB7.');
@@ -63,7 +66,7 @@ function App() {
   }, [levelsOpen, levelsChannel]);
 
   useEffect(() => {
-    drawDemoImage();
+    drawPlaceholder();
   }, []);
 
   useEffect(() => {
@@ -153,16 +156,21 @@ function App() {
     setAvailableChannels([]);
     setActiveChannels({});
     setPickedColor(null);
+    setFileName('');
+    setStatus(initialStatus);
     setCanvasReady(false);
     setCanvasVersion((version) => version + 1);
   }
 
   function drawDemoImage() {
     const imageData = createDemoImageData(960, 540);
+    const demoChannels = ['r', 'g', 'b', 'a'];
+    const demoActiveChannels = { r: true, g: true, b: true, a: true };
+
     originalImageDataRef.current = cloneImageData(imageData);
     levelsBaseImageDataRef.current = null;
-    setAvailableChannels(['r', 'g', 'b', 'a']);
-    setActiveChannels({ r: true, g: true, b: true, a: true });
+    setAvailableChannels(demoChannels);
+    setActiveChannels(demoActiveChannels);
     setPickedColor(null);
     setFileName('levels-demo');
     setStatus({
@@ -172,7 +180,7 @@ function App() {
       format: 'Демо-изображение',
     });
     renderImageData(imageData);
-    setMessage('Демо-изображение готово. Нажмите инструмент “Уровни”, чтобы увидеть коррекцию.');
+    return { imageData, channels: demoChannels, activeChannels: demoActiveChannels };
   }
 
   async function handleFileChange(event) {
@@ -261,7 +269,14 @@ function App() {
     setActiveChannels((current) => {
       const next = { ...current, [channel]: !current[channel] };
       if (levelsOpen && levelsBaseImageDataRef.current) {
-        renderImageData(createLevelPreviewImageData(levelsBaseImageDataRef.current, levelsSettings, levelsPreview, next, availableChannels));
+        levelsDisplayActiveChannelsRef.current = next;
+        renderImageData(createLevelPreviewImageData(
+          levelsBaseImageDataRef.current,
+          levelsSettings,
+          levelsPreview,
+          next,
+          levelsDisplayChannelsRef.current
+        ));
       } else {
         renderDisplayFromChannels(next);
       }
@@ -270,20 +285,29 @@ function App() {
   }
 
   function openLevelsDialog() {
-    if (!canvasReady || !originalImageDataRef.current) {
-      setMessage('Сначала загрузите изображение.');
-      return;
+    levelsHadImageBeforeOpenRef.current = Boolean(originalImageDataRef.current);
+    let source = originalImageDataRef.current;
+    let displayChannels = availableChannels;
+    let displayActiveChannels = activeChannels;
+
+    if (!source) {
+      const demo = drawDemoImage();
+      source = demo.imageData;
+      displayChannels = demo.channels;
+      displayActiveChannels = demo.activeChannels;
     }
 
-    const base = cloneImageData(originalImageDataRef.current);
+    const base = cloneImageData(source);
     const defaults = createDefaultLevelSettings();
     levelsBaseImageDataRef.current = base;
+    levelsDisplayChannelsRef.current = displayChannels;
+    levelsDisplayActiveChannelsRef.current = displayActiveChannels;
     setLevelsSettings(defaults);
     setLevelsChannel('master');
     setHistogramMode('linear');
     setLevelsPreview(true);
     setLevelsOpen(true);
-    renderImageData(createLevelPreviewImageData(base, defaults, true, activeChannels, availableChannels));
+    renderImageData(createLevelPreviewImageData(base, defaults, true, displayActiveChannels, displayChannels));
     setMessage('Открыт инструмент Levels.');
   }
 
@@ -297,7 +321,13 @@ function App() {
 
     levelsPreviewFrameRef.current = requestAnimationFrame(() => {
       levelsPreviewFrameRef.current = null;
-      renderImageData(createLevelPreviewImageData(base, nextSettings, nextPreview, activeChannels, availableChannels));
+      renderImageData(createLevelPreviewImageData(
+        base,
+        nextSettings,
+        nextPreview,
+        levelsDisplayActiveChannelsRef.current,
+        levelsDisplayChannelsRef.current
+      ));
     });
   }
 
@@ -325,18 +355,43 @@ function App() {
 
   function resetLevels() {
     const defaults = createDefaultLevelSettings();
+    const base = levelsBaseImageDataRef.current;
+
+    if (levelsPreviewFrameRef.current) {
+      cancelAnimationFrame(levelsPreviewFrameRef.current);
+      levelsPreviewFrameRef.current = null;
+    }
+
     setLevelsSettings(defaults);
-    scheduleLevelsPreview(defaults, levelsPreview);
+    if (base) {
+      renderImageData(createLevelPreviewImageData(
+        base,
+        defaults,
+        levelsPreview,
+        levelsDisplayActiveChannelsRef.current,
+        levelsDisplayChannelsRef.current
+      ));
+    }
     setMessage('Levels: значения сброшены.');
   }
 
   function cancelLevels() {
     const base = levelsBaseImageDataRef.current;
     if (base) {
-      originalImageDataRef.current = cloneImageData(base);
-      renderImageData(createChannelFilteredImageData(base, availableChannels, activeChannels));
+      if (levelsHadImageBeforeOpenRef.current) {
+        originalImageDataRef.current = cloneImageData(base);
+        renderImageData(createChannelFilteredImageData(
+          base,
+          levelsDisplayChannelsRef.current,
+          levelsDisplayActiveChannelsRef.current
+        ));
+      } else {
+        drawPlaceholder();
+      }
     }
     levelsBaseImageDataRef.current = null;
+    levelsDisplayChannelsRef.current = [];
+    levelsDisplayActiveChannelsRef.current = {};
     setLevelsOpen(false);
     setMessage('Levels: изменения отменены.');
   }
@@ -348,7 +403,13 @@ function App() {
     const corrected = applyLevelsToImageData(base, levelsSettings);
     originalImageDataRef.current = cloneImageData(corrected);
     levelsBaseImageDataRef.current = null;
-    renderImageData(createChannelFilteredImageData(corrected, availableChannels, activeChannels));
+    renderImageData(createChannelFilteredImageData(
+      corrected,
+      levelsDisplayChannelsRef.current,
+      levelsDisplayActiveChannelsRef.current
+    ));
+    levelsDisplayChannelsRef.current = [];
+    levelsDisplayActiveChannelsRef.current = {};
     setLevelsOpen(false);
     setMessage('Levels: коррекция применена.');
   }
@@ -461,7 +522,6 @@ function App() {
             className={levelsOpen ? 'tool-button active' : 'tool-button'}
             type="button"
             onClick={openLevelsDialog}
-            disabled={!canvasReady}
             aria-label="Уровни"
             title="Уровни"
           >
