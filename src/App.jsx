@@ -166,25 +166,11 @@ function App() {
     setCanvasVersion((version) => version + 1);
   }
 
-  function drawDemoImage() {
+  function createLevelsDemoSource() {
     const imageData = createDemoImageData(960, 540);
     const demoChannels = ['r', 'g', 'b', 'a'];
     const demoActiveChannels = { r: true, g: true, b: true, a: true };
 
-    originalImageDataRef.current = cloneImageData(imageData);
-    levelsBaseImageDataRef.current = null;
-    levelsLastAppliedBaseImageDataRef.current = null;
-    setAvailableChannels(demoChannels);
-    setActiveChannels(demoActiveChannels);
-    setPickedColor(null);
-    setFileName('levels-demo');
-    setStatus({
-      width: imageData.width,
-      height: imageData.height,
-      colorDepth: '32-bit RGBA',
-      format: 'Демо-изображение',
-    });
-    renderImageData(imageData);
     return { imageData, channels: demoChannels, activeChannels: demoActiveChannels };
   }
 
@@ -291,7 +277,7 @@ function App() {
     let displayActiveChannels = activeChannels;
 
     if (!source) {
-      const demo = drawDemoImage();
+      const demo = createLevelsDemoSource();
       source = demo.imageData;
       displayChannels = demo.channels;
       displayActiveChannels = demo.activeChannels;
@@ -330,9 +316,11 @@ function App() {
     if (!modalPreview) return;
 
     setLevelsModalPreviewImageData(modalPreview);
-    renderImageData(nextPreview
-      ? modalPreview
-      : createLevelPreviewImageData(base, nextSettings, false, nextActiveChannels, nextDisplayChannels));
+    if (levelsHadImageBeforeOpenRef.current) {
+      renderImageData(nextPreview
+        ? modalPreview
+        : createLevelPreviewImageData(base, nextSettings, false, nextActiveChannels, nextDisplayChannels));
+    }
   }
 
   function scheduleLevelsPreview(nextSettings = levelsSettings, nextPreview = levelsPreview) {
@@ -423,6 +411,19 @@ function App() {
     levelsLastAppliedBaseImageDataRef.current = cloneImageData(base);
     originalImageDataRef.current = cloneImageData(corrected);
     levelsBaseImageDataRef.current = null;
+
+    if (!levelsHadImageBeforeOpenRef.current) {
+      setAvailableChannels(levelsDisplayChannelsRef.current);
+      setActiveChannels(levelsDisplayActiveChannelsRef.current);
+      setFileName('levels-demo');
+      setStatus({
+        width: corrected.width,
+        height: corrected.height,
+        colorDepth: '32-bit RGBA',
+        format: 'Демо-изображение',
+      });
+    }
+
     renderImageData(createChannelFilteredImageData(
       corrected,
       levelsDisplayChannelsRef.current,
