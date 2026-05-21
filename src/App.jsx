@@ -273,11 +273,12 @@ function App() {
     levelsLastAppliedBaseImageDataRef.current = null;
     sourceImageAspectRef.current = imageData.width / imageData.height;
     setAvailableChannels(channels);
-    setActiveChannels(Object.fromEntries(channels.map((channel) => [channel, true])));
+    const active = Object.fromEntries(channels.map((channel) => [channel, true]));
+    setActiveChannels(active);
     setPickedColor(null);
     const initialScale = computeInitialScale(imageData.width, imageData.height);
     setScalePercent(initialScale);
-    renderImageForScale(initialScale, imageData);
+    renderImageForScale(initialScale, imageData, interpolationMethod, channels, active);
   }
 
   function renderDisplayFromChannels(nextActiveChannels = activeChannels) {
@@ -297,7 +298,13 @@ function App() {
     setCanvasVersion((version) => version + 1);
   }
 
-  function renderImageForScale(nextScale, sourceImageData = originalImageDataRef.current, method = interpolationMethod) {
+  function renderImageForScale(
+    nextScale,
+    sourceImageData = originalImageDataRef.current,
+    method = interpolationMethod,
+    channels = availableChannels,
+    active = activeChannels
+  ) {
     if (!sourceImageData) return;
     const width = Math.max(1, Math.round(sourceImageData.width * nextScale / 100));
     const height = Math.max(1, Math.round(sourceImageData.height * nextScale / 100));
@@ -310,7 +317,7 @@ function App() {
       width: scaled.width,
       height: scaled.height,
     }));
-    renderImageData(createChannelFilteredImageData(scaled, availableChannels, activeChannels));
+    renderImageData(createChannelFilteredImageData(scaled, channels, active));
   }
 
   function resizeImageData(imageData, width, height, method) {
