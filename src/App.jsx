@@ -208,7 +208,7 @@ function App() {
 
     const imageBitmap = await createImageBitmap(file);
     const imageData = bitmapToImageData(imageBitmap);
-    const hasAlphaChannel = ext === '.png' || file.type === 'image/png';
+    const hasAlphaChannel = ext === '.png' || file.type === 'image/png' || hasTransparency(imageData.data);
     const channels = hasAlphaChannel ? ['r', 'g', 'b', 'a'] : ['r', 'g', 'b'];
     setOriginalImage(imageData, channels);
     setStatus({
