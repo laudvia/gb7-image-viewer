@@ -208,12 +208,13 @@ function App() {
 
     const imageBitmap = await createImageBitmap(file);
     const imageData = bitmapToImageData(imageBitmap);
-    const channels = hasTransparency(imageData.data) ? ['r', 'g', 'b', 'a'] : ['r', 'g', 'b'];
+    const hasAlphaChannel = ext === '.png' || file.type === 'image/png';
+    const channels = hasAlphaChannel ? ['r', 'g', 'b', 'a'] : ['r', 'g', 'b'];
     setOriginalImage(imageData, channels);
     setStatus({
       width: imageBitmap.width,
       height: imageBitmap.height,
-      colorDepth: inferBrowserColorDepth(file.type),
+      colorDepth: inferBrowserColorDepth(file.type, hasAlphaChannel),
       format: file.type || 'Изображение браузера',
     });
   }
@@ -599,11 +600,6 @@ function App() {
                 <span>Canvas:</span>
                 <strong>{canvasReady ? 'готов' : 'пустой'}</strong>
               </div>
-            </div>
-            <div className="layer-item active">
-              <span className="eye">◉</span>
-              <span className="layer-thumb"></span>
-              <span>Background</span>
             </div>
           </section>
 
@@ -1076,7 +1072,9 @@ function normalizeBaseName(name) {
   return name.replace(/\.[^.]+$/, '');
 }
 
-function inferBrowserColorDepth(mimeType) {
+function inferBrowserColorDepth(mimeType, hasAlpha) {
+  if (hasAlpha === true) return '32-bit RGBA';
+  if (hasAlpha === false) return '24-bit RGB';
   if (mimeType === 'image/jpeg') return '24-bit RGB';
   if (mimeType === 'image/png') return '32-bit RGBA / 24-bit RGB';
   return 'Декодировано браузером';
