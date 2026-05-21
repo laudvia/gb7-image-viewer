@@ -374,38 +374,118 @@ canvas {
   white-space: nowrap;
 }
 
-.layer-item {
-  display: grid;
-  grid-template-columns: 24px 36px minmax(0, 1fr);
+.scale-row {
+  grid-template-columns: 70px 1fr;
   align-items: center;
-  gap: 8px;
-  min-height: 48px;
-  padding: 5px 8px;
-  color: #ececec;
+  gap: 10px;
+}
+
+.scale-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.scale-group strong {
+  min-width: 48px;
+  text-align: right;
+}
+
+.scale-range {
+  width: 100%;
+}
+
+.resize-dialog {
+  width: min(560px, calc(100vw - 28px));
+  max-height: calc(100vh - 96px);
+  padding: 0;
+  margin: 0;
+  border: 1px solid #151515;
+  border-radius: 4px;
+  background: #3f3f3f;
+  color: #e5e5e5;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65);
+  overflow: hidden;
+  z-index: 999;
+}
+
+.resize-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.resize-title {
+  height: 33px;
+  display: flex;
+  align-items: center;
+  padding: 0 11px;
+  border-bottom: 1px solid #1d1d1d;
+  background: #292929;
+  color: #f2f2f2;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.resize-body {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.resize-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: #d7d7d7;
+}
+
+.resize-inputs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.resize-field {
+  display: grid;
+  gap: 6px;
   font-size: 13px;
 }
 
-.layer-item.active {
-  background: #656565;
+.resize-field input,
+.resize-field select {
+  width: 100%;
+  height: 28px;
+  border: 1px solid #242424;
+  border-radius: 3px;
+  background: #2d2d2d;
+  color: #e8e8e8;
+  padding: 0 8px;
 }
 
-.eye {
-  color: #e4e4e4;
-  text-align: center;
+.resize-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
 }
 
-.layer-thumb {
-  width: 34px;
-  height: 34px;
-  border: 1px solid #dcdcdc;
-  background:
-    linear-gradient(45deg, #d8d8d8 25%, transparent 25%),
-    linear-gradient(-45deg, #d8d8d8 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #d8d8d8 75%),
-    linear-gradient(-45deg, transparent 75%, #d8d8d8 75%),
-    linear-gradient(135deg, #dcb260, #f2d9a7 45%, #866b35);
-  background-size: 10px 10px, 10px 10px, 10px 10px, 10px 10px, cover;
-  background-position: 0 0, 0 5px, 5px -5px, -5px 0, center;
+.resize-tooltip {
+  padding: 10px;
+  border: 1px solid #292929;
+  border-radius: 3px;
+  background: #2a2a2a;
+  color: #d6d6d6;
+  font-size: 12px;
+}
+
+.resize-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid #303030;
+  background: #383838;
 }
 
 .channels-list {
