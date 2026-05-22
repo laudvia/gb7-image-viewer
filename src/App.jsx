@@ -312,18 +312,45 @@ function App() {
     active = activeChannels
   ) {
     if (!sourceImageData) return;
-    const width = Math.max(1, Math.round(sourceImageData.width * nextScale / 100));
-    const height = Math.max(1, Math.round(sourceImageData.height * nextScale / 100));
-    const scaled = nextScale === 100
-      ? cloneImageData(sourceImageData)
-      : resizeImageData(sourceImageData, width, height, method);
-    displayImageDataRef.current = scaled;
-    setStatus((current) => ({
-      ...current,
-      width: scaled.width,
-      height: scaled.height,
-    }));
-    renderImageData(createChannelFilteredImageData(scaled, channels, active));
+    // For large upscales, avoid expensive JS resampling — render at source
+    // resolution and use CSS sizing to visually scale the canvas. This is
+    // much faster and avoids creating enormous ImageData objects.
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    if (nextScale > 100) {
+      // draw at native resolution
+      const scaled = cloneImageData(sourceImageData);
+      displayImageDataRef.current = scaled;
+      const displayWidth = Math.max(1, Math.round(sourceImageData.width * nextScale / 100));
+      const displayHeight = Math.max(1, Math.round(sourceImageData.height * nextScale / 100));
+      setStatus((current) => ({
+        ...current,
+        width: displayWidth,
+        height: displayHeight,
+      }));
+      // render pixel data at its native size
+      renderImageData(createChannelFilteredImageData(scaled, channels, active));
+      // then set CSS size to emulate zoom
+      canvas.style.width = `${displayWidth}px`;
+      canvas.style.height = `${displayHeight}px`;
+    } else {
+      // clear any CSS scaling applied previously
+      canvas.style.width = '';
+      canvas.style.height = '';
+      const width = Math.max(1, Math.round(sourceImageData.width * nextScale / 100));
+      const height = Math.max(1, Math.round(sourceImageData.height * nextScale / 100));
+      const scaled = nextScale === 100
+        ? cloneImageData(sourceImageData)
+        : resizeImageData(sourceImageData, width, height, method);
+      displayImageDataRef.current = scaled;
+      setStatus((current) => ({
+        ...current,
+        width: scaled.width,
+        height: scaled.height,
+      }));
+      renderImageData(createChannelFilteredImageData(scaled, channels, active));
+    }
   }
 
   function resizeImageData(imageData, width, height, method) {
