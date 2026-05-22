@@ -278,7 +278,7 @@ input {
   min-height: 0;
   display: grid;
   place-items: center;
-  overflow: hidden;
+  overflow: auto;
   padding: 55px;
   background: #202020;
 }

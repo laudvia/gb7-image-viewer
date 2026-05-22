@@ -135,12 +135,18 @@ function App() {
       const verticalPadding = parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom);
       const availableWidth = Math.max(1, wrap.clientWidth - horizontalPadding);
       const availableHeight = Math.max(1, wrap.clientHeight - verticalPadding);
-      const scale = Math.min(1, availableWidth / canvas.width, availableHeight / canvas.height);
+      const fitScale = Math.min(availableWidth / canvas.width, availableHeight / canvas.height);
 
-      setCanvasFitSize({
-        width: Math.max(1, Math.floor(canvas.width * scale)),
-        height: Math.max(1, Math.floor(canvas.height * scale)),
-      });
+      // If the canvas is larger than the available area, scale it down to fit.
+      // Otherwise leave it at its intrinsic size so zoom >100% is visible (scrollable).
+      if (fitScale < 1) {
+        setCanvasFitSize({
+          width: Math.max(1, Math.floor(canvas.width * fitScale)),
+          height: Math.max(1, Math.floor(canvas.height * fitScale)),
+        });
+      } else {
+        setCanvasFitSize(null);
+      }
     }
 
     fitCanvasToWrap();
