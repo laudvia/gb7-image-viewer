@@ -39,6 +39,39 @@ const INTERPOLATION_METHODS = {
   },
 };
 
+const KERNEL_PRESETS = {
+  identity: {
+    label: 'Тождественное отображение',
+    values: [0, 0, 0, 0, 1, 0, 0, 0, 0],
+  },
+  sharpen: {
+    label: 'Повышение резкости',
+    values: [0, -1, 0, -1, 5, -1, 0, -1, 0],
+  },
+  gaussian: {
+    label: 'Фильтр Гаусса (3 на 3)',
+    values: [0.0625, 0.125, 0.0625, 0.125, 0.25, 0.125, 0.0625, 0.125, 0.0625],
+  },
+  boxBlur: {
+    label: 'Прямоугольное размытие',
+    values: [0.111, 0.111, 0.111, 0.111, 0.111, 0.111, 0.111, 0.111, 0.111],
+  },
+  prewittX: {
+    label: 'Прюитт X',
+    values: [-1, 0, 1, -1, 0, 1, -1, 0, 1],
+  },
+  prewittY: {
+    label: 'Прюитт Y',
+    values: [-1, -1, -1, 0, 0, 0, 1, 1, 1],
+  },
+};
+
+const EDGE_HANDLING_OPTIONS = {
+  black: 'Черный',
+  white: 'Белый',
+  copy: 'Копирование',
+};
+
 function App() {
   const canvasRef = useRef(null);
   const canvasWrapRef = useRef(null);
@@ -52,6 +85,9 @@ function App() {
   const levelsDisplayActiveChannelsRef = useRef({});
   const levelsPreviewFrameRef = useRef(null);
   const resizeDialogRef = useRef(null);
+  const kernelDialogRef = useRef(null);
+  const kernelBaseImageDataRef = useRef(null);
+  const kernelPreviewRunRef = useRef(0);
   const displayImageDataRef = useRef(null);
   const sourceImageAspectRef = useRef(1);
   const [status, setStatus] = useState(initialStatus);
@@ -79,6 +115,14 @@ function App() {
   const [histogramMode, setHistogramMode] = useState('linear');
   const [levelsPreview, setLevelsPreview] = useState(true);
   const [levelsSettings, setLevelsSettings] = useState(createDefaultLevelSettings);
+  const [kernelOpen, setKernelOpen] = useState(false);
+  const [kernelFilterMode, setKernelFilterMode] = useState('kernel');
+  const [kernelPreset, setKernelPreset] = useState('identity');
+  const [kernelValues, setKernelValues] = useState(() => KERNEL_PRESETS.identity.values.map(String));
+  const [kernelChannels, setKernelChannels] = useState({});
+  const [kernelEdgeMode, setKernelEdgeMode] = useState('copy');
+  const [kernelPreview, setKernelPreview] = useState(true);
+  const [kernelBusy, setKernelBusy] = useState(false);
 
   const canSave = canvasReady;
   const allowedLabel = useMemo(() => ACCEPTED_EXTENSIONS.join(', '), []);
@@ -130,6 +174,17 @@ function App() {
       dialog.close();
     }
   }, [resizeOpen]);
+
+  useEffect(() => {
+    const dialog = kernelDialogRef.current;
+    if (!dialog) return;
+
+    if (kernelOpen && !dialog.open) {
+      dialog.showModal();
+    } else if (!kernelOpen && dialog.open) {
+      dialog.close();
+    }
+  }, [kernelOpen]);
 
   useEffect(() => (
     () => {
@@ -212,6 +267,8 @@ function App() {
     displayImageDataRef.current = null;
     levelsBaseImageDataRef.current = null;
     levelsLastAppliedBaseImageDataRef.current = null;
+    kernelBaseImageDataRef.current = null;
+    kernelPreviewRunRef.current += 1;
     setAvailableChannels([]);
     setActiveChannels({});
     setPickedColor(null);
@@ -292,6 +349,8 @@ function App() {
     displayImageDataRef.current = null;
     levelsBaseImageDataRef.current = null;
     levelsLastAppliedBaseImageDataRef.current = null;
+    kernelBaseImageDataRef.current = null;
+    kernelPreviewRunRef.current += 1;
     sourceImageAspectRef.current = imageData.width / imageData.height;
     setAvailableChannels(channels);
     const active = Object.fromEntries(channels.map((channel) => [channel, true]));
@@ -603,6 +662,183 @@ function App() {
     setMessage('Изображение изменено по размеру.');
   }
 
+  function openKernelDialog() {
+    const source = originalImageDataRef.current;
+    if (!source) {
+      setMessage('Сначала загрузите изображение.');
+      return;
+    }
+
+    const preset = 'identity';
+    const channels = Object.fromEntries(availableChannels.map((channel) => [channel, true]));
+    kernelPreviewRunRef.current += 1;
+    kernelBaseImageDataRef.current = cloneImageData(source);
+    setKernelPreset(preset);
+    setKernelFilterMode('kernel');
+    setKernelValues(KERNEL_PRESETS[preset].values.map(String));
+    setKernelChannels(channels);
+    setKernelEdgeMode('copy');
+    setKernelPreview(true);
+    setKernelBusy(false);
+    setKernelOpen(true);
+    renderImageData(createChannelFilteredImageData(source, availableChannels, activeChannels));
+    setMessage('Открыт фильтр Custom Kernel.');
+  }
+
+  function closeKernelDialog() {
+    cancelKernelDialog();
+  }
+
+  function scheduleKernelPreview(
+    nextValues = kernelValues,
+    nextChannels = kernelChannels,
+    nextEdgeMode = kernelEdgeMode,
+    nextPreview = kernelPreview,
+    nextFilterMode = kernelFilterMode
+  ) {
+    const base = kernelBaseImageDataRef.current;
+    if (!base) return;
+
+    const runId = kernelPreviewRunRef.current + 1;
+    kernelPreviewRunRef.current = runId;
+
+    if (!nextPreview) {
+      setKernelBusy(false);
+      renderImageData(createChannelFilteredImageData(base, availableChannels, activeChannels));
+      return;
+    }
+
+    setKernelBusy(true);
+    const filterPromise = nextFilterMode === 'median'
+      ? applyMedianToImageDataAsync(base, nextChannels, nextEdgeMode)
+      : applyKernelToImageDataAsync(base, parseKernelValues(nextValues), nextChannels, nextEdgeMode);
+
+    filterPromise
+      .then((filtered) => {
+        if (kernelPreviewRunRef.current !== runId) return;
+        renderImageData(createChannelFilteredImageData(filtered, availableChannels, activeChannels));
+      })
+      .catch((error) => {
+        if (kernelPreviewRunRef.current !== runId) return;
+        setMessage(error.message || 'Не удалось выполнить фильтрацию.');
+      })
+      .finally(() => {
+        if (kernelPreviewRunRef.current === runId) {
+          setKernelBusy(false);
+        }
+      });
+  }
+
+  function updateKernelPreset(preset) {
+    if (preset === 'custom') {
+      setKernelPreset(preset);
+      return;
+    }
+
+    const values = KERNEL_PRESETS[preset].values.map(String);
+    setKernelFilterMode('kernel');
+    setKernelPreset(preset);
+    setKernelValues(values);
+    scheduleKernelPreview(values, kernelChannels, kernelEdgeMode, kernelPreview, 'kernel');
+  }
+
+  function updateKernelFilterMode(filterMode) {
+    setKernelFilterMode(filterMode);
+    scheduleKernelPreview(kernelValues, kernelChannels, kernelEdgeMode, kernelPreview, filterMode);
+  }
+
+  function updateKernelValue(index, value) {
+    const next = kernelValues.map((current, currentIndex) => (
+      currentIndex === index ? value : current
+    ));
+    setKernelFilterMode('kernel');
+    setKernelPreset('custom');
+    setKernelValues(next);
+    scheduleKernelPreview(next, kernelChannels, kernelEdgeMode, kernelPreview, 'kernel');
+  }
+
+  function updateKernelChannel(channel, checked) {
+    const next = { ...kernelChannels, [channel]: checked };
+    setKernelChannels(next);
+    scheduleKernelPreview(kernelValues, next);
+  }
+
+  function updateKernelEdgeMode(edgeMode) {
+    setKernelEdgeMode(edgeMode);
+    scheduleKernelPreview(kernelValues, kernelChannels, edgeMode);
+  }
+
+  function updateKernelPreview(checked) {
+    setKernelPreview(checked);
+    scheduleKernelPreview(kernelValues, kernelChannels, kernelEdgeMode, checked);
+  }
+
+  function resetKernelDialog() {
+    const preset = 'identity';
+    const values = KERNEL_PRESETS[preset].values.map(String);
+    const channels = Object.fromEntries(availableChannels.map((channel) => [channel, true]));
+    setKernelPreset(preset);
+    setKernelFilterMode('kernel');
+    setKernelValues(values);
+    setKernelChannels(channels);
+    setKernelEdgeMode('copy');
+    setKernelPreview(true);
+    scheduleKernelPreview(values, channels, 'copy', true, 'kernel');
+    setMessage('Kernel: значения сброшены.');
+  }
+
+  function cancelKernelDialog() {
+    const base = kernelBaseImageDataRef.current;
+    kernelPreviewRunRef.current += 1;
+    if (base) {
+      renderImageData(createChannelFilteredImageData(base, availableChannels, activeChannels));
+    }
+    kernelBaseImageDataRef.current = null;
+    setKernelBusy(false);
+    setKernelOpen(false);
+    setMessage('Kernel: изменения отменены.');
+  }
+
+  async function applyKernelDialog() {
+    const base = kernelBaseImageDataRef.current;
+    if (!base) return;
+
+    const runId = kernelPreviewRunRef.current + 1;
+    kernelPreviewRunRef.current = runId;
+    setKernelBusy(true);
+
+    try {
+      const result = kernelFilterMode === 'median'
+        ? await applyMedianToImageDataAsync(base, kernelChannels, kernelEdgeMode)
+        : await applyKernelToImageDataAsync(
+          base,
+          parseKernelValues(kernelValues),
+          kernelChannels,
+          kernelEdgeMode
+        );
+      if (kernelPreviewRunRef.current !== runId) return;
+
+      originalImageDataRef.current = cloneImageData(result);
+      displayImageDataRef.current = cloneImageData(result);
+      kernelBaseImageDataRef.current = null;
+      setScalePercent(100);
+      setStatus((current) => ({
+        ...current,
+        width: result.width,
+        height: result.height,
+      }));
+      renderImageData(createChannelFilteredImageData(result, availableChannels, activeChannels));
+      setKernelOpen(false);
+      setMessage('Kernel: фильтр применён.');
+    } catch (error) {
+      setMessage(error.message || 'Не удалось применить фильтр.');
+    } finally {
+      if (kernelPreviewRunRef.current === runId) {
+        setKernelBusy(false);
+      }
+    }
+  }
+
   function toggleChannel(channel) {
     setActiveChannels((current) => {
       const next = { ...current, [channel]: !current[channel] };
@@ -889,6 +1125,15 @@ function App() {
             title="Уровни"
           >
             ▥
+          </button>
+          <button
+            className={kernelOpen ? 'tool-button active' : 'tool-button'}
+            type="button"
+            onClick={openKernelDialog}
+            aria-label="Фильтр"
+            title="Фильтр"
+          >
+            ⊞
           </button>
         </aside>
 
@@ -1188,6 +1433,103 @@ function App() {
           <button type="button" onClick={applyResize}>Применить</button>
         </form>
       </dialog>
+
+      <dialog
+        className="kernel-dialog"
+        ref={kernelDialogRef}
+        onCancel={(event) => {
+          event.preventDefault();
+          closeKernelDialog();
+        }}
+      >
+        <div className="kernel-title">Фильтр Custom Kernel</div>
+        <div className="kernel-body">
+          <label className="kernel-field">
+            <span>Метод</span>
+            <select
+              value={kernelFilterMode}
+              onChange={(event) => updateKernelFilterMode(event.target.value)}
+            >
+              <option value="kernel">Ядро 3 на 3</option>
+              <option value="median">Медианный 3 на 3</option>
+            </select>
+          </label>
+
+          <label className="kernel-field">
+            <span>Пресет</span>
+            <select
+              value={kernelPreset}
+              onChange={(event) => updateKernelPreset(event.target.value)}
+              disabled={kernelFilterMode === 'median'}
+            >
+              <option value="custom">Пользовательский</option>
+              {Object.entries(KERNEL_PRESETS).map(([value, preset]) => (
+                <option value={value} key={value}>{preset.label}</option>
+              ))}
+            </select>
+          </label>
+
+          <div className="kernel-grid" aria-label="Ядро свертки 3 на 3">
+            {kernelValues.map((value, index) => (
+              <input
+                key={index}
+                type="number"
+                step="0.001"
+                value={value}
+                onChange={(event) => updateKernelValue(index, event.target.value)}
+                disabled={kernelFilterMode === 'median'}
+                aria-label={`Значение ядра ${index + 1}`}
+              />
+            ))}
+          </div>
+
+          <fieldset className="kernel-group">
+            <legend>Каналы</legend>
+            <div className="kernel-checks">
+              {availableChannels.map((channel) => (
+                <label key={channel}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(kernelChannels[channel])}
+                    onChange={(event) => updateKernelChannel(channel, event.target.checked)}
+                  />
+                  <span>{CHANNEL_DEFS[channel].label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <label className="kernel-field">
+            <span>Край</span>
+            <select
+              value={kernelEdgeMode}
+              onChange={(event) => updateKernelEdgeMode(event.target.value)}
+            >
+              {Object.entries(EDGE_HANDLING_OPTIONS).map(([value, label]) => (
+                <option value={value} key={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="preview-check">
+            <input
+              type="checkbox"
+              checked={kernelPreview}
+              onChange={(event) => updateKernelPreview(event.target.checked)}
+            />
+            <span>Предпросмотр</span>
+          </label>
+
+          <div className="kernel-status">
+            {kernelBusy ? 'Выполняется фильтрация...' : 'Готово'}
+          </div>
+        </div>
+        <form className="kernel-actions" method="dialog">
+          <button type="button" onClick={closeKernelDialog}>Закрыть</button>
+          <button type="button" onClick={resetKernelDialog}>Сбросить</button>
+          <button type="button" onClick={applyKernelDialog} disabled={kernelBusy}>Применить</button>
+        </form>
+      </dialog>
     </div>
   );
 }
@@ -1429,6 +1771,111 @@ function createDefaultLevelSettings() {
 function createLevelPreviewImageData(imageData, settings, previewEnabled, activeChannels, displayChannels) {
   const source = previewEnabled ? applyLevelsToImageData(imageData, settings) : cloneImageData(imageData);
   return createChannelFilteredImageData(source, displayChannels, activeChannels);
+}
+
+function parseKernelValues(values) {
+  return values.map((value) => {
+    const parsed = Number(String(value).replace(',', '.'));
+    return Number.isFinite(parsed) ? parsed : 0;
+  });
+}
+
+async function applyKernelToImageDataAsync(imageData, kernel, selectedChannels, edgeMode) {
+  const { width, height, data } = imageData;
+  const output = new Uint8ClampedArray(data);
+  const channelIndexes = Object.entries(selectedChannels)
+    .filter(([, selected]) => selected)
+    .map(([channel]) => CHANNEL_DEFS[channel]?.sampleIndex)
+    .filter((index, position, indexes) => Number.isInteger(index) && indexes.indexOf(index) === position);
+
+  if (channelIndexes.length === 0) {
+    return cloneImageData(imageData);
+  }
+
+  const rowChunkSize = 24;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const targetIndex = (y * width + x) * 4;
+
+      for (const channelIndex of channelIndexes) {
+        let sum = 0;
+
+        for (let ky = -1; ky <= 1; ky += 1) {
+          for (let kx = -1; kx <= 1; kx += 1) {
+            const kernelIndex = (ky + 1) * 3 + (kx + 1);
+            const sample = getKernelSample(data, width, height, x + kx, y + ky, channelIndex, edgeMode);
+            sum += sample * kernel[kernelIndex];
+          }
+        }
+
+        output[targetIndex + channelIndex] = clamp(Math.round(sum), 0, 255);
+      }
+    }
+
+    if (y % rowChunkSize === rowChunkSize - 1) {
+      await waitForMainThread();
+    }
+  }
+
+  return new ImageData(output, width, height);
+}
+
+async function applyMedianToImageDataAsync(imageData, selectedChannels, edgeMode) {
+  const { width, height, data } = imageData;
+  const output = new Uint8ClampedArray(data);
+  const channelIndexes = Object.entries(selectedChannels)
+    .filter(([, selected]) => selected)
+    .map(([channel]) => CHANNEL_DEFS[channel]?.sampleIndex)
+    .filter((index, position, indexes) => Number.isInteger(index) && indexes.indexOf(index) === position);
+
+  if (channelIndexes.length === 0) {
+    return cloneImageData(imageData);
+  }
+
+  const rowChunkSize = 24;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const targetIndex = (y * width + x) * 4;
+
+      for (const channelIndex of channelIndexes) {
+        const samples = [];
+
+        for (let ky = -1; ky <= 1; ky += 1) {
+          for (let kx = -1; kx <= 1; kx += 1) {
+            samples.push(getKernelSample(data, width, height, x + kx, y + ky, channelIndex, edgeMode));
+          }
+        }
+
+        samples.sort((a, b) => a - b);
+        output[targetIndex + channelIndex] = samples[4];
+      }
+    }
+
+    if (y % rowChunkSize === rowChunkSize - 1) {
+      await waitForMainThread();
+    }
+  }
+
+  return new ImageData(output, width, height);
+}
+
+function getKernelSample(data, width, height, x, y, channelIndex, edgeMode) {
+  if (x >= 0 && x < width && y >= 0 && y < height) {
+    return data[(y * width + x) * 4 + channelIndex];
+  }
+
+  if (edgeMode === 'black') return 0;
+  if (edgeMode === 'white') return 255;
+
+  const clampedX = clamp(x, 0, width - 1);
+  const clampedY = clamp(y, 0, height - 1);
+  return data[(clampedY * width + clampedX) * 4 + channelIndex];
+}
+
+function waitForMainThread() {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
 }
 
 function computeHistogram(imageData, channel) {
