@@ -88,6 +88,9 @@ function App() {
   const kernelDialogRef = useRef(null);
   const kernelBaseImageDataRef = useRef(null);
   const kernelPreviewRunRef = useRef(0);
+  const medianDialogRef = useRef(null);
+  const medianBaseImageDataRef = useRef(null);
+  const medianPreviewRunRef = useRef(0);
   const displayImageDataRef = useRef(null);
   const sourceImageAspectRef = useRef(1);
   const [status, setStatus] = useState(initialStatus);
@@ -116,13 +119,17 @@ function App() {
   const [levelsPreview, setLevelsPreview] = useState(true);
   const [levelsSettings, setLevelsSettings] = useState(createDefaultLevelSettings);
   const [kernelOpen, setKernelOpen] = useState(false);
-  const [kernelFilterMode, setKernelFilterMode] = useState('kernel');
   const [kernelPreset, setKernelPreset] = useState('identity');
   const [kernelValues, setKernelValues] = useState(() => KERNEL_PRESETS.identity.values.map(String));
   const [kernelChannels, setKernelChannels] = useState({});
   const [kernelEdgeMode, setKernelEdgeMode] = useState('copy');
   const [kernelPreview, setKernelPreview] = useState(true);
   const [kernelBusy, setKernelBusy] = useState(false);
+  const [medianOpen, setMedianOpen] = useState(false);
+  const [medianChannels, setMedianChannels] = useState({});
+  const [medianEdgeMode, setMedianEdgeMode] = useState('copy');
+  const [medianPreview, setMedianPreview] = useState(true);
+  const [medianBusy, setMedianBusy] = useState(false);
 
   const canSave = canvasReady;
   const allowedLabel = useMemo(() => ACCEPTED_EXTENSIONS.join(', '), []);
@@ -185,6 +192,17 @@ function App() {
       dialog.close();
     }
   }, [kernelOpen]);
+
+  useEffect(() => {
+    const dialog = medianDialogRef.current;
+    if (!dialog) return;
+
+    if (medianOpen && !dialog.open) {
+      dialog.showModal();
+    } else if (!medianOpen && dialog.open) {
+      dialog.close();
+    }
+  }, [medianOpen]);
 
   useEffect(() => (
     () => {
@@ -269,6 +287,8 @@ function App() {
     levelsLastAppliedBaseImageDataRef.current = null;
     kernelBaseImageDataRef.current = null;
     kernelPreviewRunRef.current += 1;
+    medianBaseImageDataRef.current = null;
+    medianPreviewRunRef.current += 1;
     setAvailableChannels([]);
     setActiveChannels({});
     setPickedColor(null);
@@ -351,6 +371,8 @@ function App() {
     levelsLastAppliedBaseImageDataRef.current = null;
     kernelBaseImageDataRef.current = null;
     kernelPreviewRunRef.current += 1;
+    medianBaseImageDataRef.current = null;
+    medianPreviewRunRef.current += 1;
     sourceImageAspectRef.current = imageData.width / imageData.height;
     setAvailableChannels(channels);
     const active = Object.fromEntries(channels.map((channel) => [channel, true]));
@@ -674,7 +696,6 @@ function App() {
     kernelPreviewRunRef.current += 1;
     kernelBaseImageDataRef.current = cloneImageData(source);
     setKernelPreset(preset);
-    setKernelFilterMode('kernel');
     setKernelValues(KERNEL_PRESETS[preset].values.map(String));
     setKernelChannels(channels);
     setKernelEdgeMode('copy');
@@ -693,8 +714,7 @@ function App() {
     nextValues = kernelValues,
     nextChannels = kernelChannels,
     nextEdgeMode = kernelEdgeMode,
-    nextPreview = kernelPreview,
-    nextFilterMode = kernelFilterMode
+    nextPreview = kernelPreview
   ) {
     const base = kernelBaseImageDataRef.current;
     if (!base) return;
@@ -709,9 +729,12 @@ function App() {
     }
 
     setKernelBusy(true);
-    const filterPromise = nextFilterMode === 'median'
-      ? applyMedianToImageDataAsync(base, nextChannels, nextEdgeMode)
-      : applyKernelToImageDataAsync(base, parseKernelValues(nextValues), nextChannels, nextEdgeMode);
+    const filterPromise = applyKernelToImageDataAsync(
+      base,
+      parseKernelValues(nextValues),
+      nextChannels,
+      nextEdgeMode
+    );
 
     filterPromise
       .then((filtered) => {
@@ -736,25 +759,18 @@ function App() {
     }
 
     const values = KERNEL_PRESETS[preset].values.map(String);
-    setKernelFilterMode('kernel');
     setKernelPreset(preset);
     setKernelValues(values);
-    scheduleKernelPreview(values, kernelChannels, kernelEdgeMode, kernelPreview, 'kernel');
-  }
-
-  function updateKernelFilterMode(filterMode) {
-    setKernelFilterMode(filterMode);
-    scheduleKernelPreview(kernelValues, kernelChannels, kernelEdgeMode, kernelPreview, filterMode);
+    scheduleKernelPreview(values, kernelChannels, kernelEdgeMode, kernelPreview);
   }
 
   function updateKernelValue(index, value) {
     const next = kernelValues.map((current, currentIndex) => (
       currentIndex === index ? value : current
     ));
-    setKernelFilterMode('kernel');
     setKernelPreset('custom');
     setKernelValues(next);
-    scheduleKernelPreview(next, kernelChannels, kernelEdgeMode, kernelPreview, 'kernel');
+    scheduleKernelPreview(next, kernelChannels, kernelEdgeMode, kernelPreview);
   }
 
   function updateKernelChannel(channel, checked) {
@@ -778,12 +794,11 @@ function App() {
     const values = KERNEL_PRESETS[preset].values.map(String);
     const channels = Object.fromEntries(availableChannels.map((channel) => [channel, true]));
     setKernelPreset(preset);
-    setKernelFilterMode('kernel');
     setKernelValues(values);
     setKernelChannels(channels);
     setKernelEdgeMode('copy');
     setKernelPreview(true);
-    scheduleKernelPreview(values, channels, 'copy', true, 'kernel');
+    scheduleKernelPreview(values, channels, 'copy', true);
     setMessage('Kernel: значения сброшены.');
   }
 
@@ -808,14 +823,12 @@ function App() {
     setKernelBusy(true);
 
     try {
-      const result = kernelFilterMode === 'median'
-        ? await applyMedianToImageDataAsync(base, kernelChannels, kernelEdgeMode)
-        : await applyKernelToImageDataAsync(
-          base,
-          parseKernelValues(kernelValues),
-          kernelChannels,
-          kernelEdgeMode
-        );
+      const result = await applyKernelToImageDataAsync(
+        base,
+        parseKernelValues(kernelValues),
+        kernelChannels,
+        kernelEdgeMode
+      );
       if (kernelPreviewRunRef.current !== runId) return;
 
       originalImageDataRef.current = cloneImageData(result);
@@ -834,6 +847,132 @@ function App() {
     } finally {
       if (kernelPreviewRunRef.current === runId) {
         setKernelBusy(false);
+      }
+    }
+  }
+
+  function openMedianDialog() {
+    const source = originalImageDataRef.current;
+    if (!source) {
+      setMessage('Сначала загрузите изображение.');
+      return;
+    }
+
+    const channels = Object.fromEntries(availableChannels.map((channel) => [channel, true]));
+    medianPreviewRunRef.current += 1;
+    medianBaseImageDataRef.current = cloneImageData(source);
+    setMedianChannels(channels);
+    setMedianEdgeMode('copy');
+    setMedianPreview(true);
+    setMedianBusy(false);
+    setMedianOpen(true);
+    renderImageData(createChannelFilteredImageData(source, availableChannels, activeChannels));
+    setMessage('Открыт медианный фильтр.');
+  }
+
+  function closeMedianDialog() {
+    cancelMedianDialog();
+  }
+
+  function scheduleMedianPreview(
+    nextChannels = medianChannels,
+    nextEdgeMode = medianEdgeMode,
+    nextPreview = medianPreview
+  ) {
+    const base = medianBaseImageDataRef.current;
+    if (!base) return;
+
+    const runId = medianPreviewRunRef.current + 1;
+    medianPreviewRunRef.current = runId;
+
+    if (!nextPreview) {
+      setMedianBusy(false);
+      renderImageData(createChannelFilteredImageData(base, availableChannels, activeChannels));
+      return;
+    }
+
+    setMedianBusy(true);
+    applyMedianToImageDataAsync(base, nextChannels, nextEdgeMode)
+      .then((filtered) => {
+        if (medianPreviewRunRef.current !== runId) return;
+        renderImageData(createChannelFilteredImageData(filtered, availableChannels, activeChannels));
+      })
+      .catch((error) => {
+        if (medianPreviewRunRef.current !== runId) return;
+        setMessage(error.message || 'Не удалось выполнить медианную фильтрацию.');
+      })
+      .finally(() => {
+        if (medianPreviewRunRef.current === runId) {
+          setMedianBusy(false);
+        }
+      });
+  }
+
+  function updateMedianChannel(channel, checked) {
+    const next = { ...medianChannels, [channel]: checked };
+    setMedianChannels(next);
+    scheduleMedianPreview(next);
+  }
+
+  function updateMedianEdgeMode(edgeMode) {
+    setMedianEdgeMode(edgeMode);
+    scheduleMedianPreview(medianChannels, edgeMode);
+  }
+
+  function updateMedianPreview(checked) {
+    setMedianPreview(checked);
+    scheduleMedianPreview(medianChannels, medianEdgeMode, checked);
+  }
+
+  function resetMedianDialog() {
+    const channels = Object.fromEntries(availableChannels.map((channel) => [channel, true]));
+    setMedianChannels(channels);
+    setMedianEdgeMode('copy');
+    setMedianPreview(true);
+    scheduleMedianPreview(channels, 'copy', true);
+    setMessage('Медианный фильтр: значения сброшены.');
+  }
+
+  function cancelMedianDialog() {
+    const base = medianBaseImageDataRef.current;
+    medianPreviewRunRef.current += 1;
+    if (base) {
+      renderImageData(createChannelFilteredImageData(base, availableChannels, activeChannels));
+    }
+    medianBaseImageDataRef.current = null;
+    setMedianBusy(false);
+    setMedianOpen(false);
+    setMessage('Медианный фильтр: изменения отменены.');
+  }
+
+  async function applyMedianDialog() {
+    const base = medianBaseImageDataRef.current;
+    if (!base) return;
+
+    const runId = medianPreviewRunRef.current + 1;
+    medianPreviewRunRef.current = runId;
+    setMedianBusy(true);
+
+    try {
+      const result = await applyMedianToImageDataAsync(base, medianChannels, medianEdgeMode);
+      if (medianPreviewRunRef.current !== runId) return;
+
+      originalImageDataRef.current = cloneImageData(result);
+      displayImageDataRef.current = cloneImageData(result);
+      medianBaseImageDataRef.current = null;
+      setStatus((current) => ({
+        ...current,
+        width: result.width,
+        height: result.height,
+      }));
+      renderImageData(createChannelFilteredImageData(result, availableChannels, activeChannels));
+      setMedianOpen(false);
+      setMessage('Медианный фильтр применён.');
+    } catch (error) {
+      setMessage(error.message || 'Не удалось применить медианный фильтр.');
+    } finally {
+      if (medianPreviewRunRef.current === runId) {
+        setMedianBusy(false);
       }
     }
   }
@@ -1051,16 +1190,6 @@ function App() {
 
   return (
     <div className="photoshop-shell">
-      <header className="menu-bar">
-        <nav className="app-menu" aria-label="Главное меню">
-          <button type="button" onClick={() => fileInputRef.current?.click()}>Файл</button>
-        </nav>
-        <div className="window-tools" aria-hidden="true">
-          <span className="search-icon"></span>
-          <span className="screen-icon"></span>
-        </div>
-      </header>
-
       <div className="options-bar">
         <button className="tool-action" type="button" onClick={() => fileInputRef.current?.click()}>
           <span className="tool-action-icon">+</span>
@@ -1123,10 +1252,19 @@ function App() {
             className={kernelOpen ? 'tool-button active' : 'tool-button'}
             type="button"
             onClick={openKernelDialog}
-            aria-label="Фильтр"
-            title="Фильтр"
+            aria-label="Custom Kernel"
+            title="Custom Kernel"
           >
             ⊞
+          </button>
+          <button
+            className={medianOpen ? 'tool-button active' : 'tool-button'}
+            type="button"
+            onClick={openMedianDialog}
+            aria-label="Медианный фильтр"
+            title="Медианный фильтр"
+          >
+            ◫
           </button>
         </aside>
 
@@ -1212,13 +1350,35 @@ function App() {
                 <span>Размер:</span>
                 <strong>{scaleDimensions.width}×{scaleDimensions.height} px</strong>
               </div>
+              <div className="scale-zoom-card">
+                <span>Увеличение</span>
+                <strong>{scalePercent}%</strong>
+              </div>
+              <label className="scale-slider-field">
+                <span>Процент масштабирования</span>
+                <input
+                  type="range"
+                  min="10"
+                  max="400"
+                  step="5"
+                  value={clamp(scalePercent, 10, 400)}
+                  onChange={(event) => updateScalePercent(Number(event.target.value))}
+                  disabled={!canvasReady}
+                />
+                <div className="scale-slider-marks" aria-hidden="true">
+                  <span>10%</span>
+                  <span>100%</span>
+                  <span>400%</span>
+                </div>
+              </label>
               <label className="scale-percent-field">
-                <span>Процент</span>
+                <span>Точно</span>
                 <div className="scale-number">
                   <input
                     type="number"
                     min={SCALE_MIN}
                     max={SCALE_MAX}
+                    step="1"
                     value={scalePercentInput}
                     onChange={handleScaleChange}
                     onBlur={commitScaleInput}
@@ -1438,22 +1598,10 @@ function App() {
         <div className="kernel-title">Фильтр Custom Kernel</div>
         <div className="kernel-body">
           <label className="kernel-field">
-            <span>Метод</span>
-            <select
-              value={kernelFilterMode}
-              onChange={(event) => updateKernelFilterMode(event.target.value)}
-            >
-              <option value="kernel">Ядро 3 на 3</option>
-              <option value="median">Медианный по яркости 3 на 3</option>
-            </select>
-          </label>
-
-          <label className="kernel-field">
             <span>Пресет</span>
             <select
               value={kernelPreset}
               onChange={(event) => updateKernelPreset(event.target.value)}
-              disabled={kernelFilterMode === 'median'}
             >
               <option value="custom">Пользовательский</option>
               {Object.entries(KERNEL_PRESETS).map(([value, preset]) => (
@@ -1470,7 +1618,6 @@ function App() {
                 step="0.1"
                 value={value}
                 onChange={(event) => updateKernelValue(index, event.target.value)}
-                disabled={kernelFilterMode === 'median'}
                 aria-label={`Значение ядра ${index + 1}`}
               />
             ))}
@@ -1521,6 +1668,68 @@ function App() {
           <button type="button" onClick={closeKernelDialog}>Закрыть</button>
           <button type="button" onClick={resetKernelDialog}>Сбросить</button>
           <button type="button" onClick={applyKernelDialog} disabled={kernelBusy}>Применить</button>
+        </form>
+      </dialog>
+
+      <dialog
+        className="kernel-dialog"
+        ref={medianDialogRef}
+        onCancel={(event) => {
+          event.preventDefault();
+          closeMedianDialog();
+        }}
+      >
+        <div className="kernel-title">Медианный фильтр</div>
+        <div className="kernel-body">
+          <div className="kernel-info">
+            Окно 3 на 3 сортируется по яркости, центральный пиксель заменяется медианным значением.
+          </div>
+
+          <fieldset className="kernel-group">
+            <legend>Каналы</legend>
+            <div className="kernel-checks">
+              {availableChannels.map((channel) => (
+                <label key={channel}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(medianChannels[channel])}
+                    onChange={(event) => updateMedianChannel(channel, event.target.checked)}
+                  />
+                  <span>{CHANNEL_DEFS[channel].label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <label className="kernel-field">
+            <span>Край</span>
+            <select
+              value={medianEdgeMode}
+              onChange={(event) => updateMedianEdgeMode(event.target.value)}
+            >
+              {Object.entries(EDGE_HANDLING_OPTIONS).map(([value, label]) => (
+                <option value={value} key={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="preview-check">
+            <input
+              type="checkbox"
+              checked={medianPreview}
+              onChange={(event) => updateMedianPreview(event.target.checked)}
+            />
+            <span>Предпросмотр</span>
+          </label>
+
+          <div className="kernel-status">
+            {medianBusy ? 'Выполняется фильтрация...' : 'Готово'}
+          </div>
+        </div>
+        <form className="kernel-actions" method="dialog">
+          <button type="button" onClick={closeMedianDialog}>Закрыть</button>
+          <button type="button" onClick={resetMedianDialog}>Сбросить</button>
+          <button type="button" onClick={applyMedianDialog} disabled={medianBusy}>Применить</button>
         </form>
       </dialog>
     </div>
@@ -1828,53 +2037,70 @@ async function applyMedianToImageDataAsync(imageData, selectedChannels, edgeMode
     ? [0, 1, 2]
     : channelIndexes.filter((index) => index >= 0 && index <= 2);
   const shouldFilterAlpha = channelIndexes.includes(3);
+  const shouldFilterRed = colorChannels.includes(0);
+  const shouldFilterGreen = colorChannels.includes(1);
+  const shouldFilterBlue = colorChannels.includes(2);
 
   if (channelIndexes.length === 0) {
     return cloneImageData(imageData);
   }
 
-  const rowChunkSize = 24;
+  const brightnessSamples = new Array(9);
+  const redSamples = new Array(9);
+  const greenSamples = new Array(9);
+  const blueSamples = new Array(9);
+  const alphaSamples = new Array(9);
+  const rowChunkSize = 48;
+
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const targetIndex = (y * width + x) * 4;
 
       if (colorChannels.length > 0) {
-        const rankedPixels = [];
+        let sampleIndex = 0;
 
         for (let ky = -1; ky <= 1; ky += 1) {
           for (let kx = -1; kx <= 1; kx += 1) {
-            const sample = getMedianPixelSample(data, width, height, x + kx, y + ky, edgeMode);
-            const brightness = Math.round((0.299 * sample.r) + (0.587 * sample.g) + (0.114 * sample.b));
-            rankedPixels.push({
-              brightness,
-              sample: { ...sample, brightness },
-            });
+            setMedianColorSample(
+              data,
+              width,
+              height,
+              x + kx,
+              y + ky,
+              edgeMode,
+              sampleIndex,
+              redSamples,
+              greenSamples,
+              blueSamples,
+              brightnessSamples
+            );
+            sampleIndex += 1;
           }
         }
 
-        rankedPixels.sort((left, right) => left.brightness - right.brightness);
-        const medianPixel = rankedPixels[4].sample;
+        sortMedianColorSamples(brightnessSamples, redSamples, greenSamples, blueSamples);
         if (shouldFilterGray) {
-          output[targetIndex] = medianPixel.brightness;
-          output[targetIndex + 1] = medianPixel.brightness;
-          output[targetIndex + 2] = medianPixel.brightness;
+          output[targetIndex] = brightnessSamples[4];
+          output[targetIndex + 1] = brightnessSamples[4];
+          output[targetIndex + 2] = brightnessSamples[4];
         } else {
-          if (colorChannels.includes(0)) output[targetIndex] = medianPixel.r;
-          if (colorChannels.includes(1)) output[targetIndex + 1] = medianPixel.g;
-          if (colorChannels.includes(2)) output[targetIndex + 2] = medianPixel.b;
+          if (shouldFilterRed) output[targetIndex] = redSamples[4];
+          if (shouldFilterGreen) output[targetIndex + 1] = greenSamples[4];
+          if (shouldFilterBlue) output[targetIndex + 2] = blueSamples[4];
         }
       }
 
       if (shouldFilterAlpha) {
-        const alphaSamples = [];
+        let sampleIndex = 0;
 
         for (let ky = -1; ky <= 1; ky += 1) {
           for (let kx = -1; kx <= 1; kx += 1) {
-            alphaSamples.push(getKernelSample(data, width, height, x + kx, y + ky, 3, edgeMode));
+            alphaSamples[sampleIndex] = getKernelSample(data, width, height, x + kx, y + ky, 3, edgeMode);
+            sampleIndex += 1;
           }
         }
 
-        alphaSamples.sort((a, b) => a - b);
+        sortNineValues(alphaSamples);
         output[targetIndex + 3] = alphaSamples[4];
       }
     }
@@ -1887,32 +2113,86 @@ async function applyMedianToImageDataAsync(imageData, selectedChannels, edgeMode
   return new ImageData(output, width, height);
 }
 
-function getMedianPixelSample(data, width, height, x, y, edgeMode) {
+function setMedianColorSample(
+  data,
+  width,
+  height,
+  x,
+  y,
+  edgeMode,
+  sampleIndex,
+  redSamples,
+  greenSamples,
+  blueSamples,
+  brightnessSamples
+) {
+  let r;
+  let g;
+  let b;
+
   if (x >= 0 && x < width && y >= 0 && y < height) {
     const index = (y * width + x) * 4;
-    return {
-      r: data[index],
-      g: data[index + 1],
-      b: data[index + 2],
-    };
+    r = data[index];
+    g = data[index + 1];
+    b = data[index + 2];
+  } else if (edgeMode === 'black') {
+    r = 0;
+    g = 0;
+    b = 0;
+  } else if (edgeMode === 'white') {
+    r = 255;
+    g = 255;
+    b = 255;
+  } else {
+    const clampedX = clamp(x, 0, width - 1);
+    const clampedY = clamp(y, 0, height - 1);
+    const index = (clampedY * width + clampedX) * 4;
+    r = data[index];
+    g = data[index + 1];
+    b = data[index + 2];
   }
 
-  if (edgeMode === 'black') {
-    return { r: 0, g: 0, b: 0 };
-  }
+  redSamples[sampleIndex] = r;
+  greenSamples[sampleIndex] = g;
+  blueSamples[sampleIndex] = b;
+  brightnessSamples[sampleIndex] = Math.round((0.299 * r) + (0.587 * g) + (0.114 * b));
+}
 
-  if (edgeMode === 'white') {
-    return { r: 255, g: 255, b: 255 };
-  }
+function sortMedianColorSamples(brightnessSamples, redSamples, greenSamples, blueSamples) {
+  for (let i = 1; i < 9; i += 1) {
+    const brightness = brightnessSamples[i];
+    const red = redSamples[i];
+    const green = greenSamples[i];
+    const blue = blueSamples[i];
+    let j = i - 1;
 
-  const clampedX = clamp(x, 0, width - 1);
-  const clampedY = clamp(y, 0, height - 1);
-  const index = (clampedY * width + clampedX) * 4;
-  return {
-    r: data[index],
-    g: data[index + 1],
-    b: data[index + 2],
-  };
+    while (j >= 0 && brightnessSamples[j] > brightness) {
+      brightnessSamples[j + 1] = brightnessSamples[j];
+      redSamples[j + 1] = redSamples[j];
+      greenSamples[j + 1] = greenSamples[j];
+      blueSamples[j + 1] = blueSamples[j];
+      j -= 1;
+    }
+
+    brightnessSamples[j + 1] = brightness;
+    redSamples[j + 1] = red;
+    greenSamples[j + 1] = green;
+    blueSamples[j + 1] = blue;
+  }
+}
+
+function sortNineValues(values) {
+  for (let i = 1; i < 9; i += 1) {
+    const value = values[i];
+    let j = i - 1;
+
+    while (j >= 0 && values[j] > value) {
+      values[j + 1] = values[j];
+      j -= 1;
+    }
+
+    values[j + 1] = value;
+  }
 }
 
 function getKernelSample(data, width, height, x, y, channelIndex, edgeMode) {
