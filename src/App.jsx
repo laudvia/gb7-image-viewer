@@ -821,6 +821,7 @@ function App() {
       originalImageDataRef.current = cloneImageData(result);
       displayImageDataRef.current = cloneImageData(result);
       kernelBaseImageDataRef.current = null;
+      setScalePercent(100);
       setStatus((current) => ({
         ...current,
         width: result.width,
@@ -1021,14 +1022,13 @@ function App() {
   }
 
   async function saveAs(type) {
-    const original = originalImageDataRef.current;
-
-    if (!canvasReady || !original) {
+    if (!canvasReady) {
       setMessage('Сначала загрузите изображение.');
       return;
     }
 
     const baseName = normalizeBaseName(fileName || 'image');
+    const original = originalImageDataRef.current;
 
     if (type === 'gb7') {
       const bytes = encodeGB7(original, { useMask: hasTransparency(original.data) });
@@ -1037,16 +1037,23 @@ function App() {
       return;
     }
 
+    const canvas = canvasRef.current;
+
     const mimeType = type === 'png' ? 'image/png' : 'image/jpeg';
     const quality = type === 'jpg' ? 0.95 : undefined;
 
-    try {
-      const blob = await imageDataToBlob(original, mimeType, quality);
-      downloadBlob(blob, `${baseName}.${type}`);
-      setMessage(`${type.toUpperCase()}-файл сохранён.`);
-    } catch (error) {
-      setMessage(error.message || 'Не удалось сформировать файл для скачивания.');
-    }
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          setMessage('Не удалось сформировать файл для скачивания.');
+          return;
+        }
+        downloadBlob(blob, `${baseName}.${type}`);
+        setMessage(`${type.toUpperCase()}-файл сохранён.`);
+      },
+      mimeType,
+      quality
+    );
   }
 
   return (
@@ -1444,7 +1451,7 @@ function App() {
               onChange={(event) => updateKernelFilterMode(event.target.value)}
             >
               <option value="kernel">Ядро 3 на 3</option>
-              <option value="median">Медианный по яркости 3 на 3</option>
+              <option value="median">Медианный 3 на 3</option>
             </select>
           </label>
 
@@ -1467,7 +1474,7 @@ function App() {
               <input
                 key={index}
                 type="number"
-                step="0.1"
+                step="0.001"
                 value={value}
                 onChange={(event) => updateKernelValue(index, event.target.value)}
                 disabled={kernelFilterMode === 'median'}
@@ -1816,18 +1823,10 @@ async function applyKernelToImageDataAsync(imageData, kernel, selectedChannels, 
 async function applyMedianToImageDataAsync(imageData, selectedChannels, edgeMode) {
   const { width, height, data } = imageData;
   const output = new Uint8ClampedArray(data);
-  const selectedChannelNames = Object.entries(selectedChannels)
-    .filter(([, selected]) => selected)
-    .map(([channel]) => channel);
   const channelIndexes = Object.entries(selectedChannels)
     .filter(([, selected]) => selected)
     .map(([channel]) => CHANNEL_DEFS[channel]?.sampleIndex)
     .filter((index, position, indexes) => Number.isInteger(index) && indexes.indexOf(index) === position);
-  const shouldFilterGray = selectedChannelNames.includes('gray');
-  const colorChannels = shouldFilterGray
-    ? [0, 1, 2]
-    : channelIndexes.filter((index) => index >= 0 && index <= 2);
-  const shouldFilterAlpha = channelIndexes.includes(3);
 
   if (channelIndexes.length === 0) {
     return cloneImageData(imageData);
@@ -1838,44 +1837,17 @@ async function applyMedianToImageDataAsync(imageData, selectedChannels, edgeMode
     for (let x = 0; x < width; x += 1) {
       const targetIndex = (y * width + x) * 4;
 
-      if (colorChannels.length > 0) {
-        const rankedPixels = [];
+      for (const channelIndex of channelIndexes) {
+        const samples = [];
 
         for (let ky = -1; ky <= 1; ky += 1) {
           for (let kx = -1; kx <= 1; kx += 1) {
-            const sample = getMedianPixelSample(data, width, height, x + kx, y + ky, edgeMode);
-            const brightness = Math.round((0.299 * sample.r) + (0.587 * sample.g) + (0.114 * sample.b));
-            rankedPixels.push({
-              brightness,
-              sample: { ...sample, brightness },
-            });
+            samples.push(getKernelSample(data, width, height, x + kx, y + ky, channelIndex, edgeMode));
           }
         }
 
-        rankedPixels.sort((left, right) => left.brightness - right.brightness);
-        const medianPixel = rankedPixels[4].sample;
-        if (shouldFilterGray) {
-          output[targetIndex] = medianPixel.brightness;
-          output[targetIndex + 1] = medianPixel.brightness;
-          output[targetIndex + 2] = medianPixel.brightness;
-        } else {
-          if (colorChannels.includes(0)) output[targetIndex] = medianPixel.r;
-          if (colorChannels.includes(1)) output[targetIndex + 1] = medianPixel.g;
-          if (colorChannels.includes(2)) output[targetIndex + 2] = medianPixel.b;
-        }
-      }
-
-      if (shouldFilterAlpha) {
-        const alphaSamples = [];
-
-        for (let ky = -1; ky <= 1; ky += 1) {
-          for (let kx = -1; kx <= 1; kx += 1) {
-            alphaSamples.push(getKernelSample(data, width, height, x + kx, y + ky, 3, edgeMode));
-          }
-        }
-
-        alphaSamples.sort((a, b) => a - b);
-        output[targetIndex + 3] = alphaSamples[4];
+        samples.sort((a, b) => a - b);
+        output[targetIndex + channelIndex] = samples[4];
       }
     }
 
@@ -1885,34 +1857,6 @@ async function applyMedianToImageDataAsync(imageData, selectedChannels, edgeMode
   }
 
   return new ImageData(output, width, height);
-}
-
-function getMedianPixelSample(data, width, height, x, y, edgeMode) {
-  if (x >= 0 && x < width && y >= 0 && y < height) {
-    const index = (y * width + x) * 4;
-    return {
-      r: data[index],
-      g: data[index + 1],
-      b: data[index + 2],
-    };
-  }
-
-  if (edgeMode === 'black') {
-    return { r: 0, g: 0, b: 0 };
-  }
-
-  if (edgeMode === 'white') {
-    return { r: 255, g: 255, b: 255 };
-  }
-
-  const clampedX = clamp(x, 0, width - 1);
-  const clampedY = clamp(y, 0, height - 1);
-  const index = (clampedY * width + clampedX) * 4;
-  return {
-    r: data[index],
-    g: data[index + 1],
-    b: data[index + 2],
-  };
 }
 
 function getKernelSample(data, width, height, x, y, channelIndex, edgeMode) {
@@ -2071,40 +2015,6 @@ function downloadBlob(blob, fileName) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-}
-
-function imageDataToBlob(imageData, mimeType, quality) {
-  return new Promise((resolve, reject) => {
-    const scratch = document.createElement('canvas');
-    const ctx = scratch.getContext('2d');
-    scratch.width = imageData.width;
-    scratch.height = imageData.height;
-
-    if (mimeType === 'image/jpeg') {
-      const sourceCanvas = document.createElement('canvas');
-      const sourceCtx = sourceCanvas.getContext('2d');
-      sourceCanvas.width = imageData.width;
-      sourceCanvas.height = imageData.height;
-      sourceCtx.putImageData(imageData, 0, 0);
-
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, scratch.width, scratch.height);
-      ctx.drawImage(sourceCanvas, 0, 0);
-    } else {
-      ctx.putImageData(imageData, 0, 0);
-    }
-    scratch.toBlob(
-      (blob) => {
-        if (blob) {
-          resolve(blob);
-        } else {
-          reject(new Error('Не удалось сформировать файл для скачивания.'));
-        }
-      },
-      mimeType,
-      quality
-    );
-  });
 }
 
 function getExtension(name) {
