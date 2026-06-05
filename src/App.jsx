@@ -140,19 +140,23 @@ function App() {
   }, [levelsOpen, levelsChannel]);
   const scaleDimensions = getScaledDimensions(originalImageDataRef.current, scalePercent);
   const canvasStyle = originalImageDataRef.current
-    ? {
-      width: `${scaleDimensions.width}px`,
-      height: `${scaleDimensions.height}px`,
-      imageRendering: interpolationMethod === 'nearest' ? 'pixelated' : 'auto',
-    }
+    ? scaleMode === 'view'
+      ? {
+        width: `${scaleDimensions.width}px`,
+        height: `${scaleDimensions.height}px`,
+        imageRendering: interpolationMethod === 'nearest' ? 'pixelated' : 'auto',
+      }
+      : {
+        imageRendering: interpolationMethod === 'nearest' ? 'pixelated' : 'auto',
+      }
     : canvasFitSize
       ? { width: `${canvasFitSize.width}px`, height: `${canvasFitSize.height}px` }
       : undefined;
   const imageDimensions = originalImageDataRef.current
     ? { width: originalImageDataRef.current.width, height: originalImageDataRef.current.height }
     : { width: 0, height: 0 };
-  const sourceMegapixels = formatMegapixels(imageDimensions.width * imageDimensions.height);
   const scaleMegapixels = formatMegapixels(scaleDimensions.width * scaleDimensions.height);
+  const scaleSizeLabel = scaleMode === 'resize' ? 'Новый размер:' : 'Размер на экране:';
 
   useEffect(() => {
     drawPlaceholder();
@@ -161,6 +165,18 @@ function App() {
   useEffect(() => {
     setScalePercentInput(String(scalePercent));
   }, [scalePercent]);
+
+  useEffect(() => {
+    const source = originalImageDataRef.current;
+    if (!source || !canvasReady) return;
+
+    if (scaleMode === 'resize') {
+      renderResizePreview(scalePercent, source, interpolationMethod, availableChannels, activeChannels);
+      return;
+    }
+
+    renderImageForScale(scalePercent, source, interpolationMethod, availableChannels, activeChannels);
+  }, [scaleMode, scalePercent, interpolationMethod]);
 
   useEffect(() => {
     const dialog = levelsDialogRef.current;
@@ -421,6 +437,29 @@ function App() {
     renderImageData(createChannelFilteredImageData(sourceImageData, channels, active));
   }
 
+  function renderResizePreview(
+    nextScale,
+    sourceImageData = originalImageDataRef.current,
+    method = interpolationMethod,
+    channels = availableChannels,
+    active = activeChannels
+  ) {
+    if (!sourceImageData) return;
+
+    const { width, height } = getScaledDimensions(sourceImageData, nextScale);
+    const preview = nextScale === 100
+      ? cloneImageData(sourceImageData)
+      : resizeImageData(sourceImageData, width, height, method);
+
+    displayImageDataRef.current = cloneImageData(preview);
+    setStatus((current) => ({
+      ...current,
+      width: preview.width,
+      height: preview.height,
+    }));
+    renderImageData(createChannelFilteredImageData(preview, channels, active));
+  }
+
   function resizeImageData(imageData, width, height, method) {
     if (method === 'nearest') {
       return nearestNeighborInterpolation(imageData, width, height);
@@ -431,8 +470,8 @@ function App() {
   function nearestNeighborInterpolation(imageData, width, height) {
     const source = imageData.data;
     const output = new Uint8ClampedArray(width * height * 4);
-    const xRatio = imageData.width / width;
-    const yRatio = imageData.height / height;
+    const xRatio = width > 1 ? (imageData.width - 1) / (width - 1) : 0;
+    const yRatio = height > 1 ? (imageData.height - 1) / (height - 1) : 0;
 
     for (let y = 0; y < height; y += 1) {
       const srcY = Math.min(imageData.height - 1, Math.round(y * yRatio));
@@ -453,8 +492,8 @@ function App() {
   function bilinearInterpolation(imageData, width, height) {
     const source = imageData.data;
     const output = new Uint8ClampedArray(width * height * 4);
-    const xRatio = imageData.width / width;
-    const yRatio = imageData.height / height;
+    const xRatio = width > 1 ? (imageData.width - 1) / (width - 1) : 0;
+    const yRatio = height > 1 ? (imageData.height - 1) / (height - 1) : 0;
 
     for (let y = 0; y < height; y += 1) {
       const srcY = y * yRatio;
@@ -1355,15 +1394,15 @@ function App() {
                 </button>
               </div>
               <div className="mini-row">
-                <span>Файл:</span>
-                <strong>{sourceMegapixels} Мп</strong>
+                <span>Исходный размер:</span>
+                <strong>{imageDimensions.width}×{imageDimensions.height} px</strong>
               </div>
               <div className="mini-row">
                 <span>{scaleMode === 'resize' ? 'Новый:' : 'На экране:'}</span>
                 <strong>{scaleMegapixels} Мп</strong>
               </div>
               <div className="mini-row">
-                <span>{scaleMode === 'resize' ? 'Размер:' : 'Canvas:'}</span>
+                <span>{scaleSizeLabel}</span>
                 <strong>{scaleDimensions.width}×{scaleDimensions.height} px</strong>
               </div>
               <div className="scale-zoom-card">
