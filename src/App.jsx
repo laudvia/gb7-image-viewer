@@ -103,6 +103,7 @@ function App() {
   const [activeChannels, setActiveChannels] = useState({});
   const [activeTool, setActiveTool] = useState('move');
   const [pickedColor, setPickedColor] = useState(null);
+  const [scaleMode, setScaleMode] = useState('view');
   const [scalePercent, setScalePercent] = useState(100);
   const [scalePercentInput, setScalePercentInput] = useState('100');
   const [interpolationMethod, setInterpolationMethod] = useState('bilinear');
@@ -147,9 +148,10 @@ function App() {
     : canvasFitSize
       ? { width: `${canvasFitSize.width}px`, height: `${canvasFitSize.height}px` }
       : undefined;
-  const sourceMegapixels = originalImageDataRef.current
-    ? formatMegapixels(originalImageDataRef.current.width * originalImageDataRef.current.height)
-    : '0';
+  const imageDimensions = originalImageDataRef.current
+    ? { width: originalImageDataRef.current.width, height: originalImageDataRef.current.height }
+    : { width: 0, height: 0 };
+  const sourceMegapixels = formatMegapixels(imageDimensions.width * imageDimensions.height);
   const scaleMegapixels = formatMegapixels(scaleDimensions.width * scaleDimensions.height);
 
   useEffect(() => {
@@ -293,6 +295,7 @@ function App() {
     setActiveChannels({});
     setPickedColor(null);
     setFileName('');
+    setScaleMode('view');
     setScalePercent(100);
     setStatus(initialStatus);
     setCanvasReady(false);
@@ -409,12 +412,11 @@ function App() {
   ) {
     if (!sourceImageData) return;
 
-    const dimensions = getScaledDimensions(sourceImageData, nextScale);
     displayImageDataRef.current = cloneImageData(sourceImageData);
     setStatus((current) => ({
       ...current,
-      width: dimensions.width,
-      height: dimensions.height,
+      width: sourceImageData.width,
+      height: sourceImageData.height,
     }));
     renderImageData(createChannelFilteredImageData(sourceImageData, channels, active));
   }
@@ -513,13 +515,7 @@ function App() {
 
   function updateScalePercent(nextScale) {
     preserveCanvasViewportCenter(nextScale);
-    const dimensions = getScaledDimensions(originalImageDataRef.current, nextScale);
     setScalePercent(nextScale);
-    setStatus((current) => ({
-      ...current,
-      width: dimensions.width,
-      height: dimensions.height,
-    }));
   }
 
   function preserveCanvasViewportCenter(nextScale) {
@@ -565,6 +561,7 @@ function App() {
     displayImageDataRef.current = cloneImageData(resized);
     sourceImageAspectRef.current = resized.width / resized.height;
     setScalePercent(100);
+    setScaleMode('view');
     setStatus((current) => ({
       ...current,
       width: resized.width,
@@ -673,6 +670,7 @@ function App() {
 
     originalImageDataRef.current = cloneImageData(resized);
     displayImageDataRef.current = cloneImageData(resized);
+    sourceImageAspectRef.current = resized.width / resized.height;
     setScalePercent(100);
     setResizeOpen(false);
     setStatus((current) => ({
@@ -1338,24 +1336,42 @@ function App() {
               <span>Масштабирование</span>
             </div>
             <div className="scale-controls">
+              <div className="scale-mode-toggle" role="group" aria-label="Режим масштабирования">
+                <button
+                  type="button"
+                  className={scaleMode === 'view' ? 'active' : ''}
+                  onClick={() => setScaleMode('view')}
+                  disabled={!canvasReady}
+                >
+                  Просмотр
+                </button>
+                <button
+                  type="button"
+                  className={scaleMode === 'resize' ? 'active' : ''}
+                  onClick={() => setScaleMode('resize')}
+                  disabled={!canvasReady}
+                >
+                  Размер изображения
+                </button>
+              </div>
               <div className="mini-row">
-                <span>Исходно:</span>
+                <span>Файл:</span>
                 <strong>{sourceMegapixels} Мп</strong>
               </div>
               <div className="mini-row">
-                <span>Новый:</span>
+                <span>{scaleMode === 'resize' ? 'Новый:' : 'На экране:'}</span>
                 <strong>{scaleMegapixels} Мп</strong>
               </div>
               <div className="mini-row">
-                <span>Размер:</span>
+                <span>{scaleMode === 'resize' ? 'Размер:' : 'Canvas:'}</span>
                 <strong>{scaleDimensions.width}×{scaleDimensions.height} px</strong>
               </div>
               <div className="scale-zoom-card">
-                <span>Увеличение</span>
+                <span>{scaleMode === 'resize' ? 'Новый масштаб' : 'Увеличение'}</span>
                 <strong>{scalePercent}%</strong>
               </div>
               <label className="scale-slider-field">
-                <span>Процент масштабирования</span>
+                <span>{scaleMode === 'resize' ? 'Процент нового размера' : 'Процент просмотра'}</span>
                 <input
                   type="range"
                   min="10"
@@ -1404,8 +1420,11 @@ function App() {
                   ))}
                 </select>
               </label>
-              <button type="button" onClick={applyScaleResize} disabled={!canvasReady}>
+              <button type="button" onClick={applyScaleResize} disabled={!canvasReady || scaleMode !== 'resize'}>
                 Применить размер
+              </button>
+              <button type="button" onClick={openResizeDialog} disabled={!canvasReady}>
+                Точные размеры
               </button>
             </div>
           </section>
